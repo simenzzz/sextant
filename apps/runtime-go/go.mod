@@ -1,6 +1,6 @@
 module github.com/simenzzz/sextant/apps/runtime-go
 
-go 1.25.0
+go 1.25.3
 
 require (
 	github.com/atombender/go-jsonschema v0.23.1

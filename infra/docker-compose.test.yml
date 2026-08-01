@@ -1,0 +1,34 @@
+# Compose smoke test: brings the services up and asserts they are reachable.
+#
+# This is not the unit suite — it is the check that the images build, start,
+# and answer. `make smoke` runs it; CI gains it at P1, when there is an actual
+# request path worth exercising end to end.
+name: sextant-test
+
+services:
+  retriever:
+    build:
+      context: ../apps/retriever-python
+
+  runtime:
+    build:
+      context: ../apps/runtime-go
+    environment:
+      SEXTANT_ADDR: ":8080"
+      SEXTANT_PROVIDER: fake
+      SEXTANT_RETRIEVER_URL: http://retriever:8000
+      # /data deliberately, not /tmp: /tmp is world-writable, so pointing
+      # the trace store there would hide exactly the ownership bug this
+      # smoke test exists to catch.
+      SEXTANT_TRACE_PATH: /data/trace.sqlite
+    depends_on:
+      - retriever
+
+  smoke:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      - runtime
+      - retriever
+    volumes:
+      - ./e2e:/e2e:ro
+    entrypoint: ["sh", "/e2e/smoke.sh"]

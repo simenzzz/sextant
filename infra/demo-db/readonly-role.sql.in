@@ -1,0 +1,46 @@
+-- Defence in depth for SQL execution.
+--
+-- The AST guard (PLAN.md 5.2) rejects anything that is not a SELECT, but the
+-- guard must not be the only thing standing between a bad generation and a
+-- dropped table. Generated SQL executes as this role, which physically cannot
+-- write regardless of what the guard lets through.
+--
+-- Applied by 02-readonly-role.sh, which supplies :pw from the environment.
+-- Named .sql.in rather than .sql so the Postgres entrypoint does not also run
+-- it directly: it would then execute without the :pw binding and fail init.
+-- Read the GRANTs below as the answer to "what happens if the guard has a
+-- bug": nothing that persists.
+
+CREATE ROLE sextant_readonly WITH LOGIN PASSWORD :'pw';
+
+-- Connect and look, nothing else.
+GRANT CONNECT ON DATABASE sextant_demo TO sextant_readonly;
+GRANT USAGE ON SCHEMA public TO sextant_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO sextant_readonly;
+
+-- Tables created later inherit the same restriction, so adding a table cannot
+-- accidentally hand the agent write access to it. Scoped FOR ROLE explicitly:
+-- unscoped, it would apply only to objects created by whoever ran this file.
+ALTER DEFAULT PRIVILEGES FOR ROLE sextant IN SCHEMA public
+    GRANT SELECT ON TABLES TO sextant_readonly;
+
+-- Explicitly deny the rest. REVOKE is redundant given the grants above, but it
+-- makes the intent unmissable and survives someone later granting something
+-- broader to PUBLIC. Revoking ALL on the database also strips TEMPORARY, so
+-- the role cannot create temp tables either.
+REVOKE CREATE ON SCHEMA public FROM sextant_readonly;
+REVOKE ALL ON DATABASE sextant_demo FROM PUBLIC;
+
+-- Read-only at the session level too, so the invariant holds even if the P3
+-- executor forgets SET TRANSACTION READ ONLY or a pooler resets the session.
+-- The role grants are the primary control; this is the backstop under them.
+ALTER ROLE sextant_readonly SET default_transaction_read_only = on;
+
+-- A statement timeout at the role level, so a runaway query is bounded even if
+-- the driver-level timeout is misconfigured. The runtime sets its own, tighter
+-- one per statement; this is the backstop.
+ALTER ROLE sextant_readonly SET statement_timeout = '30s';
+
+-- A repair loop that leaks connections would otherwise have the whole
+-- max_connections pool available to it.
+ALTER ROLE sextant_readonly CONNECTION LIMIT 8;

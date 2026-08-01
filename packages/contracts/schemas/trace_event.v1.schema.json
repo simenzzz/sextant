@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/trace_event.v1.schema.json",
+  "title": "TraceEventV1",
+  "description": "One state transition in an agent run, streamed to the client over SSE and persisted to the trace store. The UI and the eval harness are both consumers of this stream — one protocol, two consumers. Modelled as a single open-ended object rather than a discriminated union so every language generator produces one usable type; `type` says which fields are meaningful, and the rest are omitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "type", "step", "elapsed_ms"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always trace_event.v1",
+      "type": "string",
+      "const": "trace_event.v1"
+    },
+    "type": {
+      "description": "Which transition this event records. `abstained`, `budget_exhausted`, `depth_exhausted` and `deadline_exceeded` are recorded outcomes, not errors — the eval reports their rates.",
+      "type": "string",
+      "enum": [
+        "run_started",
+        "retrieved",
+        "generating",
+        "generated",
+        "validated",
+        "rejected",
+        "executing",
+        "executed",
+        "observed",
+        "repairing",
+        "escalated",
+        "abstained",
+        "budget_exhausted",
+        "depth_exhausted",
+        "deadline_exceeded",
+        "answered",
+        "error"
+      ]
+    },
+    "step": {
+      "description": "Monotonic index of this event within the run, starting at 0. Consumers use it to detect gaps.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "elapsed_ms": {
+      "description": "Milliseconds since the run started, measured against an injected clock so tests are deterministic",
+      "type": "integer",
+      "minimum": 0
+    },
+    "repair_depth": {
+      "description": "How many repair iterations have been consumed when this event fired",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "tables": {
+      "description": "On `retrieved`: the schema subset handed to generation, after foreign-key expansion and reranking",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "maxItems": 64
+    },
+    "delta": {
+      "description": "On `generating`: a streamed token fragment of the SQL being written",
+      "type": "string",
+      "maxLength": 8192
+    },
+    "sql": {
+      "description": "On `generated` the raw generation; on `validated` the exact statement cleared for execution. These differ whenever the guard injected or clamped a LIMIT, and the distinction matters when reading a trace.",
+      "type": "string",
+      "maxLength": 20000
+    },
+    "model": {
+      "description": "On `generating` / `generated` / `escalated`: the model id that produced the output",
+      "type": "string",
+      "maxLength": 128
+    },
+    "candidate_index": {
+      "description": "On k-sample self-consistency runs: which of the k candidates this event belongs to",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16
+    },
+    "row_count": {
+      "description": "On `executed`: rows returned, after the enforced LIMIT",
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure_kind": {
+      "description": "On `rejected` / `error`: the classified failure. The repair loop's next prompt depends on which one fired — a syntax error and an empty result deserve completely different follow-ups.",
+      "type": "string",
+      "enum": [
+        "syntax_error",
+        "unknown_column",
+        "unknown_table",
+        "type_mismatch",
+        "timeout",
+        "empty_result",
+        "too_many_rows",
+        "guard_rejected",
+        "provider_error",
+        "internal_error"
+      ]
+    },
+    "message": {
+      "description": "Human-readable detail, safe to render. Never carries a raw upstream provider or driver error body — those can leak auth and quota state and are logged server-side instead.",
+      "type": "string",
+      "maxLength": 2000
+    },
+    "usd": {
+      "description": "Dollars this step cost. Present on every step that made a paid call.",
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

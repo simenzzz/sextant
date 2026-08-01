@@ -1,0 +1,5 @@
+{
+  "schema": "question_request.v1",
+  "question": "How many orders were cancelled last month?",
+  "database": "demo"
+}

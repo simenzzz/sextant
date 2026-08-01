@@ -1,0 +1,9 @@
+{
+  "schema": "question_request.v1",
+  "question": "Which three schools had the highest average SAT math score in 2015?",
+  "database": "bird-california-schools",
+  "evidence": "SAT math score refers to the AvgScrMath column.",
+  "max_repair_depth": 3,
+  "budget_usd": 0.05,
+  "wall_clock_ms": 30000
+}

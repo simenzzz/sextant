@@ -1,0 +1,1 @@
+{ "schema": "cost_ledger.v1", "run_id": "run-1", "price_table_date": "2026-08-01", "entries": [ { "step": 0, "model": "m", "tokens_in": 1, "tokens_out": 1, "usd": 0.1, "ms": 5, "prompt": "hi" } ], "totals": { "tokens_in": 1, "tokens_out": 1, "usd": 0.1, "ms": 5 } }

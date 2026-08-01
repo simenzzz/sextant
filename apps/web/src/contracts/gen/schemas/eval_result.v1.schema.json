@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/eval_result.v1.schema.json",
+  "title": "EvalResultV1",
+  "description": "The output of one eval run, committed to eval/results/ so the run history is part of the record. Carries enough provenance to reproduce the run and to explain a number that moved: git SHA, prompt versions, model ids, price table date, and the fixture set hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "started_at", "provenance", "metrics", "criteria", "passed"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always eval_result.v1",
+      "type": "string",
+      "const": "eval_result.v1"
+    },
+    "run_id": {
+      "description": "Identifier for this eval run",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "started_at": {
+      "description": "When the run began, RFC 3339",
+      "type": "string",
+      "format": "date-time"
+    },
+    "mode": {
+      "description": "replay reads recorded provider responses from disk and makes zero network calls, which is what makes the eval CI-gateable. live makes paid calls and is a manual operation.",
+      "type": "string",
+      "enum": ["replay", "live"],
+      "default": "replay"
+    },
+    "item_count": {
+      "description": "How many benchmark questions this run covered",
+      "type": "integer",
+      "minimum": 0
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "metrics": { "$ref": "#/$defs/metrics" },
+    "criteria": {
+      "description": "Declarative exit criteria evaluated for this run. CI fails on a regression below the floor, not on a fixed target.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/criterion" },
+      "maxItems": 64
+    },
+    "passed": {
+      "description": "True when every criterion held. The eval runner exits non-zero when this is false.",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_sha", "fixture_set_hash", "price_table_date"],
+      "properties": {
+        "git_sha": {
+          "description": "Commit the runtime was built from",
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 40,
+          "pattern": "^[a-f0-9]+$"
+        },
+        "fixture_set_hash": {
+          "description": "Hash of the recorded provider responses used. Re-running an old fixture set after a prompt change shows exactly what moved.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-f0-9]+$"
+        },
+        "price_table_date": {
+          "description": "Date the price table behind the dollar figures was last verified",
+          "type": "string",
+          "format": "date"
+        },
+        "models": {
+          "description": "Model ids in play, cheap tier first",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "maxItems": 8
+        },
+        "prompt_versions": {
+          "description": "Prompt name to version, e.g. generate_sql -> v2",
+          "type": "object",
+          "additionalProperties": { "type": "string", "maxLength": 32 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "execution_accuracy": {
+          "description": "The headline number: fraction of questions whose result set matches gold",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "valid_efficiency_score": {
+          "description": "BIRD's efficiency-weighted accuracy",
+          "type": "number",
+          "minimum": 0
+        },
+        "schema_recall_at_k": {
+          "description": "Fraction of questions whose retrieved subset contained every table in the gold query. Reported separately from execution accuracy so retrieval failures are distinguishable from generation failures — the single most useful diagnostic in the system.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "k": {
+          "description": "The k that schema_recall_at_k was measured at",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "valid_sql_rate": {
+          "description": "Fraction of generations the guard accepted",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "repair_lift": {
+          "description": "Execution accuracy with repair minus accuracy without. May be negative, and a negative value is reported rather than hidden.",
+          "type": "number"
+        },
+        "escalation_rate": {
+          "description": "Fraction of questions routed to the expensive tier",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "escalated_slice_accuracy": {
+          "description": "Accuracy on the escalated questions only. Compared against what the cheap tier alone scored on that same slice, this answers whether escalation actually pays.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "abstention_rate": {
+          "description": "Fraction of questions the agent declined to answer",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cost_per_correct_usd": {
+          "description": "Total dollars divided by correct answers",
+          "type": "number",
+          "minimum": 0
+        },
+        "total_usd": { "type": "number", "minimum": 0 },
+        "cache_hit_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "cache_false_hit_rate": {
+          "description": "Fraction of cache hits that returned SQL for a question it does not actually answer. The important cache number, and the one a naive hit-rate metric hides.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "latency_p50_ms": { "type": "integer", "minimum": 0 },
+        "latency_p95_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "op", "threshold", "value", "passed"],
+      "properties": {
+        "metric": {
+          "description": "Name of the metric this criterion gates",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "op": {
+          "description": "Comparison applied as: value <op> threshold",
+          "type": "string",
+          "enum": [">=", "<=", "=="]
+        },
+        "threshold": { "type": "number" },
+        "value": {
+          "description": "The measured value this run produced",
+          "type": "number"
+        },
+        "passed": { "type": "boolean" },
+        "description": {
+          "description": "Human-readable statement of the criterion, printed by the runner",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+# Local full-stack development.
+#
+# Runs with no credentials and makes no paid calls: SEXTANT_PROVIDER defaults
+# to "fake", so a fresh clone comes up working and cannot spend money by
+# accident. Set it to "anthropic" and supply a key when you want real calls.
+# Published host ports are overridable because host conflicts are common —
+# this machine already runs an Apache on 8080, which silently makes the runtime
+# unreachable from the browser while the container itself looks healthy. Set
+# SEXTANT_RUNTIME_PORT etc. in .env rather than editing this file.
+name: sextant
+
+services:
+  demo-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: sextant_demo
+      POSTGRES_USER: sextant
+      # Local-only default. Bound to localhost, seed data only. A deployed
+      # instance must supply this from the environment.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sextant-local-dev}
+      # Consumed by 02-readonly-role.sh. Local default so a fresh clone works;
+      # a deployed instance must override it.
+      SEXTANT_READONLY_PASSWORD: ${SEXTANT_READONLY_PASSWORD:-sextant-readonly-local}
+    ports:
+      - "127.0.0.1:${SEXTANT_DB_PORT:-5432}:5432"
+    volumes:
+      # Postgres runs everything in this directory once, on first init. Both
+      # the schema and the read-only role are applied here, in filename order.
+      - ../infra/demo-db:/docker-entrypoint-initdb.d:ro
+      - demo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sextant -d sextant_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  retriever:
+    build:
+      context: ../apps/retriever-python
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      SEXTANT_RETRIEVER_PORT: "8000"
+    ports:
+      - "127.0.0.1:${SEXTANT_RETRIEVER_PORT_HOST:-8000}:8000"
+
+  runtime:
+    build:
+      context: ../apps/runtime-go
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      SEXTANT_ADDR: ":8080"
+      SEXTANT_PROVIDER: fake
+      SEXTANT_RETRIEVER_URL: http://retriever:8000
+      SEXTANT_TRACE_PATH: /data/trace.sqlite
+      # Must list the web origin, or the browser blocks every call to this
+      # service and the health badge reads "unreachable" on a healthy stack.
+      SEXTANT_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:${SEXTANT_WEB_PORT:-8081}
+    ports:
+      - "127.0.0.1:${SEXTANT_RUNTIME_PORT:-8080}:8080"
+    volumes:
+      - runtime-data:/data
+    depends_on:
+      demo-db:
+        condition: service_healthy
+      retriever:
+        condition: service_started
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        VITE_API_URL: http://localhost:${SEXTANT_RUNTIME_PORT:-8080}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      # Feeds the CSP connect-src in default.conf.template. Must match the
+      # origin the browser actually calls, i.e. the published runtime port.
+      API_ORIGIN: http://localhost:${SEXTANT_RUNTIME_PORT:-8080}
+    ports:
+      - "127.0.0.1:${SEXTANT_WEB_PORT:-8081}:8080"
+    depends_on:
+      - runtime
+
+volumes:
+  demo-db-data:
+  runtime-data:

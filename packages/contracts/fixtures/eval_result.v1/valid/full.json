@@ -1,0 +1,33 @@
+{
+  "schema": "eval_result.v1",
+  "run_id": "eval-0042",
+  "started_at": "2026-08-01T09:30:00Z",
+  "mode": "replay",
+  "item_count": 50,
+  "provenance": {
+    "git_sha": "1a2b3c4d5e6f",
+    "fixture_set_hash": "9e107d9d372b",
+    "price_table_date": "2026-08-01",
+    "models": ["claude-haiku-4-5-20251001", "claude-sonnet-5"],
+    "prompt_versions": { "generate_sql": "v2", "repair_sql": "v1" }
+  },
+  "metrics": {
+    "execution_accuracy": 0.62,
+    "schema_recall_at_k": 0.91,
+    "k": 10,
+    "valid_sql_rate": 0.98,
+    "repair_lift": 0.07,
+    "escalation_rate": 0.14,
+    "escalated_slice_accuracy": 0.5,
+    "abstention_rate": 0.04,
+    "cost_per_correct_usd": 0.0181,
+    "total_usd": 0.561,
+    "latency_p50_ms": 2100,
+    "latency_p95_ms": 6400
+  },
+  "criteria": [
+    { "metric": "execution_accuracy", "op": ">=", "threshold": 0.55, "value": 0.62, "passed": true, "description": "Execution accuracy >= 0.55" },
+    { "metric": "valid_sql_rate", "op": ">=", "threshold": 0.95, "value": 0.98, "passed": true, "description": "Valid-SQL rate >= 0.95" }
+  ],
+  "passed": true
+}

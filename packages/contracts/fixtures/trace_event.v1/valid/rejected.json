@@ -1,0 +1,9 @@
+{
+  "schema": "trace_event.v1",
+  "type": "rejected",
+  "step": 3,
+  "elapsed_ms": 920,
+  "repair_depth": 1,
+  "failure_kind": "guard_rejected",
+  "message": "statement references table 'audit_log' outside the retrieved schema subset"
+}

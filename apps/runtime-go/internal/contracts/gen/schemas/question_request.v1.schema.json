@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/question_request.v1.schema.json",
+  "title": "QuestionRequestV1",
+  "description": "A single natural-language question submitted to the agent runtime, together with the database it is asked against and the optional per-run caps that bound it. Validated at the HTTP boundary before any model call is made.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "question", "database"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always question_request.v1",
+      "type": "string",
+      "const": "question_request.v1"
+    },
+    "question": {
+      "description": "The user's natural-language question",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "database": {
+      "description": "Identifier of the database to query. Must name a database the runtime has a read-only connection configured for; it is never interpolated into SQL.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "evidence": {
+      "description": "External knowledge accompanying the question. BIRD supplies this per item; the live demo leaves it empty.",
+      "type": "string",
+      "maxLength": 4000,
+      "default": ""
+    },
+    "max_repair_depth": {
+      "description": "Cap on repair iterations for this run. Absent means use the server default; a value above the server's configured ceiling is clamped, never honoured.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 3
+    },
+    "budget_usd": {
+      "description": "Dollar cap for this run. Clamped to the server ceiling. Hitting it ends the run with a recorded budget_exhausted outcome, which is not an error.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.05
+    },
+    "wall_clock_ms": {
+      "description": "Wall-clock cap for this run in milliseconds. Clamped to the server ceiling.",
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 300000,
+      "default": 30000
+    }
+  }
+}

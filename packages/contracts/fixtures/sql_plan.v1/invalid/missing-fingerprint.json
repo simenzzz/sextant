@@ -1,0 +1,1 @@
+{ "schema": "sql_plan.v1", "sql": "SELECT 1", "dialect": "sqlite", "tables": ["t"], "limit_value": 100, "statement_timeout_ms": 5000 }

@@ -1,0 +1,1 @@
+{ "schema": "eval_result.v1", "run_id": "e1", "started_at": "2026-08-01T09:30:00Z", "provenance": { "git_sha": "0badc0f", "fixture_set_hash": "ab12", "price_table_date": "2026-08-01" }, "metrics": { "execution_accuracy": 1.5 }, "criteria": [], "passed": true }

@@ -1,0 +1,37 @@
+{
+  "schema": "cost_ledger.v1",
+  "run_id": "run-0042",
+  "price_table_date": "2026-08-01",
+  "entries": [
+    {
+      "step": 2,
+      "model": "claude-haiku-4-5-20251001",
+      "tokens_in": 1840,
+      "tokens_out": 96,
+      "usd": 0.00201,
+      "ms": 740,
+      "cache_hit": false,
+      "escalated": false,
+      "repair_depth": 0
+    },
+    {
+      "step": 6,
+      "model": "claude-sonnet-5",
+      "tokens_in": 2110,
+      "tokens_out": 132,
+      "usd": 0.01044,
+      "ms": 1580,
+      "cache_hit": false,
+      "escalated": true,
+      "repair_depth": 1
+    }
+  ],
+  "totals": {
+    "tokens_in": 3950,
+    "tokens_out": 228,
+    "usd": 0.01245,
+    "ms": 2320,
+    "provider_calls": 2,
+    "cache_hits": 0
+  }
+}

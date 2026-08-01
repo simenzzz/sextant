@@ -1,0 +1,36 @@
+# Keeps the SHA-pinned actions and every dependency manifest current.
+#
+# Pinning by SHA (see ci.yml) makes updates invisible without this file: the
+# pin never expires, so a pinned action silently ages out of support. Grouping
+# minor and patch bumps keeps the PR volume survivable on a solo project.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: gomod
+    directory: /apps/runtime-go
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /apps/retriever-python
+    schedule: { interval: weekly }
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule: { interval: weekly }
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  # The codegen toolchain writes committed source into all three services, so
+  # it gets the same treatment as anything else in the supply chain.
+  - package-ecosystem: npm
+    directory: /packages/contracts/codegen
+    schedule: { interval: weekly }

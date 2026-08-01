@@ -1,0 +1,13 @@
+{
+  "schema": "eval_result.v1",
+  "run_id": "eval-0001",
+  "started_at": "2026-08-01T09:30:00Z",
+  "provenance": {
+    "git_sha": "0badc0f",
+    "fixture_set_hash": "d41d8cd98f",
+    "price_table_date": "2026-08-01"
+  },
+  "metrics": {},
+  "criteria": [],
+  "passed": true
+}

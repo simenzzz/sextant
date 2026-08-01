@@ -1,0 +1,11 @@
+{
+  "schema": "sql_plan.v1",
+  "sql": "SELECT c.name, SUM(o.total) FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY c.name LIMIT 500",
+  "dialect": "postgres",
+  "tables": ["customers", "orders"],
+  "limit_injected": true,
+  "limit_clamped": false,
+  "limit_value": 500,
+  "statement_timeout_ms": 10000,
+  "schema_fingerprint": "aa01ff9d"
+}

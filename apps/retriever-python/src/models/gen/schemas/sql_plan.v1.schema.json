@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/sql_plan.v1.schema.json",
+  "title": "SqlPlanV1",
+  "description": "A SQL statement that has passed the guard and is cleared for execution, together with everything the guard proved about it. Nothing executes without one of these; the executor takes a plan, never a raw string.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "sql", "dialect", "tables", "limit_value", "statement_timeout_ms", "schema_fingerprint"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always sql_plan.v1",
+      "type": "string",
+      "const": "sql_plan.v1"
+    },
+    "sql": {
+      "description": "The exact statement to execute, after LIMIT injection or clamping. This is what the UI's SQL panel shows — never the pre-guard generation.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "dialect": {
+      "description": "SQL dialect the statement was parsed and rewritten for",
+      "type": "string",
+      "enum": ["sqlite", "postgres"]
+    },
+    "tables": {
+      "description": "Every table the statement references, as resolved from the AST. The guard proves this is a subset of the retrieved schema subset; a table outside it is a bug or an injection.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "minItems": 1,
+      "maxItems": 64
+    },
+    "limit_injected": {
+      "description": "True when the guard added a LIMIT the generation did not have",
+      "type": "boolean",
+      "default": false
+    },
+    "limit_clamped": {
+      "description": "True when the generation had a LIMIT larger than the cap and the guard lowered it",
+      "type": "boolean",
+      "default": false
+    },
+    "limit_value": {
+      "description": "The row limit in force on the statement",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "statement_timeout_ms": {
+      "description": "Timeout the driver enforces on this statement. The runtime enforces a separate wall-clock cap; both must be set.",
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 120000
+    },
+    "schema_fingerprint": {
+      "description": "Fingerprint of the database schema the plan was built against. The semantic cache is scoped by this; a plan is never reused across a fingerprint change.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-f0-9]+$"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+# Rendered at container start by the nginx entrypoint's envsubst, which
+# substitutes ${API_ORIGIN}. That indirection is not decoration: connect-src
+# must name the exact origin the browser calls, so a hardcoded port would make
+# every API call fail the moment the published port is overridden — and CSP
+# failures surface as silent network errors, not as anything that says "CSP".
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # The SQL panel and result table render server-supplied strings from P1
+    # onward. React escapes by default, but a CSP is the layer that still holds
+    # when something eventually renders markup.
+    #
+    # 'unsafe-inline' is granted to styles only, because Vite inlines critical
+    # CSS. Scripts get no such exemption.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${API_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header X-Frame-Options "DENY" always;
+
+    # SPA fallback: without it a deep link 404s.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

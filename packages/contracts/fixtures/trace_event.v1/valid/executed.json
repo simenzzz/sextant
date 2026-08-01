@@ -1,0 +1,10 @@
+{
+  "schema": "trace_event.v1",
+  "type": "executed",
+  "step": 5,
+  "elapsed_ms": 1840,
+  "repair_depth": 0,
+  "sql": "SELECT status, COUNT(*) FROM orders GROUP BY status LIMIT 100",
+  "row_count": 4,
+  "usd": 0.0009
+}

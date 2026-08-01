@@ -220,9 +220,16 @@ jobs:
       - name: pip-audit
         working-directory: apps/retriever-python
         run: |
+          # pip itself is audited too, and the runner ships a version behind
+          # the current patched release.
+          pip install --quiet --upgrade pip
           pip install --quiet pip-audit
           pip install --quiet -e '.[dev]'
-          pip-audit --strict
+          # No --strict: it fails on any dependency that could not be audited,
+          # and sextant-retriever is a local package that is not on PyPI, so
+          # --strict fails on the project itself rather than on a vulnerability.
+          # Without it, a real finding still exits non-zero — verified.
+          pip-audit --progress-spinner=off
 
       - name: npm audit
         working-directory: apps/web

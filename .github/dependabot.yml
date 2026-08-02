@@ -26,6 +26,39 @@ updates:
     directory: /apps/web
     schedule: { interval: weekly }
     groups:
+      # One group for the whole build/test toolchain, because these four
+      # packages are transitively bound to each other. Verified against the
+      # installed tree, not assumed:
+      #
+      #   @vitest/coverage-v8@3.2.7  peerDependencies.vitest = "3.2.7" (exact)
+      #   @vitejs/plugin-react@4.7.0 peerDependencies.vite   = ^4||^5||^6||^7
+      #   vitest@3.2.7               dependencies.vite       = ^5||^6||^7.0.0-0
+      #
+      # The first two make a lone bump fail `npm ci` with ERESOLVE — that is
+      # what killed PRs #4, #6 and #7 on the first run. The third is worse
+      # because it is silent: vitest depends on vite normally rather than as a
+      # peer, so a top-level vite 8 does not error, npm simply nests a second
+      # vite under vitest, and the tests then run against a different vite than
+      # `vite build` uses. That duplicate-vite split is a real trap — it cost a
+      # debugging cycle during P0 — so vite and vitest move together or not at
+      # all.
+      #
+      # Majors are included deliberately. Excluding them would silence the
+      # proposals rather than make them installable.
+      #
+      # Caveat worth knowing before merging the grouped PR: grouping is
+      # necessary but not sufficient for a vite major. Until a
+      # @vitejs/plugin-react release exists whose peer range admits vite 8, the
+      # grouped PR will still fail to install. That is a red PR that tells the
+      # truth, which beats three that each fail for a reason of our own making.
+      #
+      # Order matters: first matching group wins, so this specific family must
+      # precede the catch-all below. (Strictly, the catch-all never claimed
+      # majors — the missing `major` update-type is what broke the first round
+      # — but ordering is still load-bearing for minor and patch bumps.)
+      vite-toolchain:
+        patterns: ["vite", "@vitejs/*", "vitest", "@vitest/*"]
+        update-types: [major, minor, patch]
       npm-minor-patch:
         update-types: [minor, patch]
 

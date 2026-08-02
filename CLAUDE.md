@@ -223,3 +223,9 @@ fresh clone runs with no API key and cannot make a paid call by accident.
 
 `make eval` is **paid and manual**. `make eval-smoke` is the replayed subset CI
 runs. Both land at P2.
+
+If `make up` brings up containers that report healthy but the browser cannot
+reach, suspect a published-port collision before anything else. Every host port
+is overridable — see `.env.example`. On WSL2 the squatter may be a **Windows**
+process, in which case `ss -ltnp` inside WSL shows nothing at all and the
+conflict looks causeless.

@@ -3,7 +3,7 @@ module github.com/simenzzz/sextant/apps/runtime-go
 go 1.25.3
 
 require (
-	github.com/atombender/go-jsonschema v0.23.1
+	github.com/atombender/go-jsonschema v0.24.0
 	github.com/joho/godotenv v1.5.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	modernc.org/sqlite v1.55.0

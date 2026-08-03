@@ -20,13 +20,28 @@ export function apiBaseUrl(explicit?: string): string {
  *
  * Concatenation is not safe here: `${base}${path}` with a path like
  * `@evil.example/x` yields `http://localhost:8080@evil.example/x`, whose
- * origin is evil.example — and run paths come from server-supplied run ids.
- * The URL constructor resolves properly, and the leading-slash requirement
- * keeps a relative path from escaping the base.
+ * origin is evil.example — and run paths come from server-supplied responses.
+ *
+ * Nor is the leading-slash rule sufficient on its own, which is what it used
+ * to be. `new URL('//evil.example/x', 'http://localhost:8080')` resolves to
+ * `http://evil.example/x`: a protocol-relative URL starts with a slash and
+ * still escapes the base entirely. Verified, not assumed.
+ *
+ * So the check is on the RESULT, not the input. Whatever string arrives, the
+ * resolved origin must be the base's — which no rule about leading characters
+ * can guarantee, and one comparison can.
  */
 export function apiUrl(path: string, explicitBase?: string): string {
   if (!path.startsWith('/')) {
     throw new Error(`apiUrl: path must start with "/", got ${JSON.stringify(path)}`)
   }
-  return new URL(path, apiBaseUrl(explicitBase)).toString()
+
+  const base = apiBaseUrl(explicitBase)
+  const resolved = new URL(path, base)
+  if (resolved.origin !== new URL(base).origin) {
+    throw new Error(
+      `apiUrl: path resolves to ${resolved.origin}, not the API origin ${new URL(base).origin}`,
+    )
+  }
+  return resolved.toString()
 }

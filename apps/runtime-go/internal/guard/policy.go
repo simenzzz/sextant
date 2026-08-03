@@ -45,66 +45,94 @@ type Policy struct {
 // a rejection — visible, and fixable by a human who then adds the kind
 // deliberately.
 //
-// These are sqlglot expression class names, exactly as parse_summary.v1's
-// node_kinds carries them. Absent by design and worth naming: Drop, Delete,
-// Insert, Update, Create, Alter, Attach, Detach, Pragma, Copy, Command,
-// Transaction, Grant, and Anonymous — the last because an unknown function
-// call arrives as that one shared kind, which is how pg_read_file and readfile
-// reach the parser.
+// DERIVED, NOT GUESSED. Every entry below came from running real analytical
+// statements through the sidecar and reading the node_kinds it reported. A
+// hand-written version of this list rejected CASE WHEN, CAST, ||, strftime,
+// group_concat and half of what an ordinary question needs — which would not
+// have looked like a guard bug, it would have looked like the model writing bad
+// SQL, and it would have shown up as a collapsed eval number at P2. Regenerate
+// with the corpus in guard_corpus_test.go rather than adding entries by hand.
+//
+// Absent by design: Drop, Delete, Insert, Update, Create, Alter, Attach,
+// Detach, Pragma, Copy, Command, Transaction, Grant.
+//
+// Anonymous IS present, and that is deliberate — see AllowedFunctions.
 var AllowedNodeKinds = map[string]bool{
-	// Query shape.
+	// Structure.
 	"Select": true, "From": true, "Where": true, "Group": true, "Having": true,
 	"Order": true, "Ordered": true, "Limit": true, "Offset": true, "Distinct": true,
-	"Subquery": true, "With": true, "CTE": true, "TableAlias": true,
+	"Subquery": true, "With": true, "CTE": true, "TableAlias": true, "Window": true,
 	"Union": true, "Except": true, "Intersect": true, "SetOperation": true,
+	"Join": true, "Lateral": true, "Cross": true,
 
-	// Joins.
-	"Join": true, "Lateral": true,
-
-	// References and literals.
+	// References, literals, and types.
 	"Table": true, "Column": true, "Identifier": true, "Literal": true,
 	"Star": true, "Alias": true, "Null": true, "Boolean": true, "Placeholder": true,
+	"DataType": true, "Cast": true, "TryCast": true, "Interval": true, "Tuple": true,
 
 	// Operators and predicates.
 	"EQ": true, "NEQ": true, "GT": true, "GTE": true, "LT": true, "LTE": true,
 	"And": true, "Or": true, "Not": true, "Is": true, "In": true, "Between": true,
 	"Like": true, "ILike": true, "Exists": true, "Paren": true, "Neg": true,
 	"Add": true, "Sub": true, "Mul": true, "Div": true, "Mod": true,
-	"Case": true, "If": true, "Coalesce": true, "Cast": true, "TryCast": true,
-	"Concat": true, "Interval": true, "Tuple": true,
+	"Case": true, "If": true, "DPipe": true, "Concat": true,
 
-	// Aggregates and the ordinary scalar functions a question needs.
+	// Aggregates, scalar functions, and window functions that sqlglot names.
 	"Count": true, "Sum": true, "Avg": true, "Min": true, "Max": true,
 	"Abs": true, "Round": true, "Floor": true, "Ceil": true, "Length": true,
 	"Lower": true, "Upper": true, "Trim": true, "Substring": true,
-	"Extract": true, "Date": true, "DateTrunc": true,
-	"DateDiff": true, "DateAdd": true, "StrToDate": true, "TimeToStr": true,
-	"Cross": true, "Window": true, "RowNumber": true, "Rank": true, "DenseRank": true,
+	"Coalesce": true, "GroupConcat": true, "Extract": true,
+	"Date": true, "DateTrunc": true, "DateDiff": true, "DateAdd": true,
+	"StrToDate": true, "TimeToStr": true, "TsOrDsToTimestamp": true,
+	"RowNumber": true, "Rank": true, "DenseRank": true,
+
+	// A function sqlglot does not have a node type for. See AllowedFunctions:
+	// this kind is admitted precisely BECAUSE the function allowlist is what
+	// gates it, and excluding it here would refuse printf and julianday along
+	// with readfile.
+	"Anonymous": true,
 }
 
-// AllowedFunctions is the guard's allowlist of callable function names.
+// AllowedFunctions is the guard's allowlist of callable function names, and it
+// is the ONLY thing standing between a generation and a file-reading function.
 //
-// node_kinds cannot carry this on its own: a parser renders a function it
-// knows as its own node type (COUNT becomes Count) but every function it does
-// not know as one shared kind, so pg_read_file, readfile, writefile and
-// lo_import are indistinguishable by kind alone. PLAN.md section 5.2 requires
-// file functions to be refused, and this list plus the absence of "Anonymous"
-// from AllowedNodeKinds is what makes that possible.
+// This is the finding that shaped both lists. A parser renders a function it
+// knows as its own node type (COUNT becomes Count) and every function it does
+// not know as one shared kind, Anonymous. Measured against sqlglot: readfile,
+// writefile and load_extension arrive as Anonymous — and so do printf and
+// julianday, which are perfectly ordinary. So the node-kind allowlist cannot
+// separate them. Excluding Anonymous would refuse legitimate SQL; including it
+// admits every unknown function. Only a list of NAMES distinguishes the two,
+// which is why parse_summary.v1 carries `functions` at all and why this list is
+// load-bearing rather than belt-and-braces.
 //
-// Lowercased, matching what the sidecar reports.
+// Lowercased, matching what the sidecar reports. Note the entries that look
+// odd — time_to_str, ts_or_ds_to_timestamp — are sqlglot's canonical names for
+// strftime and friends, taken from real output rather than invented.
 var AllowedFunctions = map[string]bool{
+	// Aggregates.
 	"count": true, "sum": true, "avg": true, "min": true, "max": true,
+	"total": true, "group_concat": true, "string_agg": true,
+
+	// Scalar.
 	"abs": true, "round": true, "floor": true, "ceil": true, "ceiling": true,
 	"length": true, "lower": true, "upper": true, "trim": true, "ltrim": true,
 	"rtrim": true, "substr": true, "substring": true, "replace": true,
 	"coalesce": true, "ifnull": true, "nullif": true, "cast": true,
-	"date": true, "time": true, "datetime": true, "strftime": true,
-	"julianday": true, "date_trunc": true, "date_part": true, "extract": true,
-	"now": true, "current_date": true, "current_timestamp": true,
+	"case": true, "if": true, "iif": true, "exists": true, "distinct": true,
+	"concat": true, "printf": true, "format": true,
+	"greatest": true, "least": true,
+
+	// Dates. The canonical names sqlglot emits, plus the surface spellings.
+	"date": true, "time": true, "datetime": true, "julianday": true,
+	"strftime": true, "time_to_str": true, "ts_or_ds_to_timestamp": true,
+	"date_trunc": true, "date_part": true, "date_diff": true, "date_add": true,
+	"extract": true, "now": true, "current_date": true, "current_timestamp": true,
+	"str_to_date": true,
+
+	// Window.
 	"row_number": true, "rank": true, "dense_rank": true,
-	"group_concat": true, "string_agg": true, "distinct": true,
-	"cume_dist": true, "lag": true, "lead": true, "total": true,
-	"printf": true, "format": true, "iif": true, "greatest": true, "least": true,
+	"cume_dist": true, "lag": true, "lead": true, "ntile": true,
 }
 
 // Rejection is why a statement may not execute.

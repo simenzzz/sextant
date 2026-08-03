@@ -90,11 +90,29 @@ def validate_request(payload: object) -> ParseRequest:
 
 
 def summarize(req: ParseRequest) -> dict[str, Any]:
-    """Parse one request and return a parse_summary.v1 document."""
+    """Parse one request and return a parse_summary.v1 document.
+
+    Never raises. The module docstring promises that, and the promise has to
+    cover the WHOLE summarisation rather than only the parse call: walking a
+    deeply nested statement raises RecursionError from ``walk()``, long after
+    ``sqlglot.parse`` has returned successfully. A model emitting 100 nested
+    subqueries is a routine bad generation, and letting it escape turned into
+    an HTTP 500 that the Go client then classified as "the runtime called this
+    service wrongly" — misreporting our own crash as a caller error.
+    """
     try:
-        parsed = sqlglot.parse(req.sql, read=req.dialect)
-    except Exception as exc:  # sqlglot raises several types; all mean the same thing here
+        return _summarize(req)
+    except RecursionError:
+        # Not _safe_reason: a RecursionError's message says nothing useful and
+        # the type name alone is clearer.
+        return _failed(req.dialect, "statement is nested too deeply to analyse")
+    except Exception as exc:
         return _failed(req.dialect, _safe_reason(exc))
+
+
+def _summarize(req: ParseRequest) -> dict[str, Any]:
+    """The body of summarize, with failures left to the caller to classify."""
+    parsed = sqlglot.parse(req.sql, read=req.dialect)
 
     # sqlglot yields None for an empty statement, which a trailing semicolon
     # produces. Counting those would make "SELECT 1;" look like two statements

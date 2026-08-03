@@ -25,11 +25,23 @@ type Loader struct {
 	mu     sync.Mutex
 	byslug map[string]Schema
 	open   map[string]*sql.DB
+	// once serialises introspection PER DATABASE rather than globally.
+	//
+	// Holding one mutex across the whole read meant a cold cache serialised
+	// every concurrent first question — including questions against a
+	// different database — behind a PRAGMA per table and a sampling SELECT per
+	// column. sync.Once also collapses a thundering herd into one read and
+	// gives every waiter the same result.
+	once map[string]*sync.Once
 }
 
 // NewLoader builds an empty loader.
 func NewLoader() *Loader {
-	return &Loader{byslug: make(map[string]Schema), open: make(map[string]*sql.DB)}
+	return &Loader{
+		byslug: make(map[string]Schema),
+		open:   make(map[string]*sql.DB),
+		once:   make(map[string]*sync.Once),
+	}
 }
 
 // Register makes a database's connection available for introspection.
@@ -46,34 +58,59 @@ func (l *Loader) Register(slug string, db *sql.DB) {
 // Load returns a database's schema, introspecting it on first use.
 func (l *Loader) Load(ctx context.Context, db dbreg.Database) (Schema, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	if cached, ok := l.byslug[db.Slug]; ok {
+		l.mu.Unlock()
 		return cached, nil
 	}
-
-	handle, ok := l.open[db.Slug]
+	handle, registered := l.open[db.Slug]
+	gate, ok := l.once[db.Slug]
 	if !ok {
+		gate = new(sync.Once)
+		l.once[db.Slug] = gate
+	}
+	l.mu.Unlock()
+
+	if !registered {
 		return Schema{}, fmt.Errorf("schema: no open connection registered for %q", db.Slug)
 	}
-
-	var (
-		sch Schema
-		err error
-	)
-	switch db.Dialect {
-	case dbreg.DialectSQLite:
-		sch, err = IntrospectSQLite(ctx, handle)
-	default:
+	if db.Dialect != dbreg.DialectSQLite {
 		// Postgres introspection arrives with the dialect adapters at P3.
 		// Refusing is better than falling through to the SQLite path, which
 		// would query sqlite_master against Postgres and fail confusingly.
 		return Schema{}, fmt.Errorf("schema: introspection for dialect %q is not implemented", db.Dialect)
 	}
-	if err != nil {
-		return Schema{}, err
+
+	// Introspection runs OUTSIDE the mutex, so a slow read on one database
+	// does not block questions against another.
+	var readErr error
+	gate.Do(func() {
+		sch, err := IntrospectSQLite(ctx, handle)
+		if err != nil {
+			readErr = err
+			// A failed read must not be remembered as success, and the next
+			// caller should get to try again rather than inherit this one's
+			// cancelled context.
+			l.mu.Lock()
+			delete(l.once, db.Slug)
+			l.mu.Unlock()
+			return
+		}
+		l.mu.Lock()
+		l.byslug[db.Slug] = sch
+		l.mu.Unlock()
+	})
+	if readErr != nil {
+		return Schema{}, readErr
 	}
 
-	l.byslug[db.Slug] = sch
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	sch, ok := l.byslug[db.Slug]
+	if !ok {
+		// Another caller's introspection failed while this one waited on the
+		// Once. Report rather than return a zero schema, which the guard would
+		// read as "no tables are allowed".
+		return Schema{}, fmt.Errorf("schema: introspecting %q failed", db.Slug)
+	}
 	return sch, nil
 }

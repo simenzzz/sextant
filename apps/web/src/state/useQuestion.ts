@@ -128,6 +128,20 @@ export function useQuestion(options: UseQuestionOptions = {}) {
     [baseUrl, fetchImpl],
   )
 
+  // Close the stream as soon as the run reaches a terminal event.
+  //
+  // Without this the server finishes, closes the connection, and EventSource
+  // reports that close as `onerror` — so a perfectly ANSWERED run displayed as
+  // an error — and then auto-reconnects, issuing a second GET on the same run.
+  // That reconnect is the trigger that would re-run a question if anything
+  // ever left a run row unfinished, so closing here removes the trigger as
+  // well as the wrong status.
+  useEffect(() => {
+    if (state.outcome !== null) {
+      clientRef.current?.close()
+    }
+  }, [state.outcome])
+
   const stop = useCallback(() => {
     clientRef.current?.close()
   }, [])

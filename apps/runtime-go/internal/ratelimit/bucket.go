@@ -55,6 +55,14 @@ type Config struct {
 	IdleEviction time.Duration
 }
 
+// maxBuckets caps how many clients are tracked at once.
+//
+// Far above any real deployment's concurrent client count, and far below
+// anything that threatens memory. See Allow for why the ceiling refuses rather
+// than evicting: choosing a victim to evict would let an attacker evict a
+// legitimate client's bucket and reset their limit.
+const maxBuckets = 100_000
+
 // DefaultIdleEviction is how long a silent client's bucket is remembered.
 //
 // Long enough that a normal user's bucket survives their think time, short
@@ -97,6 +105,18 @@ func (l *Limiter) Allow(key string) bool {
 	l.sweep(now)
 
 	b, ok := l.buckets[key]
+	if !ok && len(l.buckets) >= maxBuckets {
+		// The sweep is amortised — at most once per eviction window — so
+		// "cannot grow without bound" was only true ACROSS windows, not within
+		// one. A burst of unique keys (which is what a distributed attack looks
+		// like, and what a spoofable X-Forwarded-For makes trivial) could mint
+		// a bucket per request for ten minutes.
+		//
+		// At the ceiling, refuse rather than allocate. Refusing is the safe
+		// direction: the limiter exists to say no, and a limiter that exhausts
+		// memory to keep saying yes has inverted its own purpose.
+		return false
+	}
 	if !ok {
 		// A new client starts full, so their first request is never the one
 		// that gets refused.
@@ -157,13 +177,25 @@ func (l *Limiter) Len() int {
 func ClientKey(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			candidate := fwd
 			if first, _, found := strings.Cut(fwd, ","); found {
-				return strings.TrimSpace(first)
+				candidate = first
 			}
-			return strings.TrimSpace(fwd)
+			// Parsed as an IP rather than taken verbatim. The header is
+			// client-set and Go accepts around a megabyte of headers, so an
+			// unvalidated value is an attacker-chosen map key of
+			// attacker-chosen length — a fresh bucket per request, each one
+			// starting full, which defeats the limiter and grows the map at the
+			// same time.
+			if ip := net.ParseIP(strings.TrimSpace(candidate)); ip != nil {
+				return ip.String()
+			}
+			// A malformed header falls through to the socket rather than being
+			// trusted. Falling back is what keeps a spoofed header from being
+			// better than no header.
 		}
-		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
-			return real
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != nil {
+			return ip.String()
 		}
 	}
 	// RemoteAddr carries a port, which changes on every connection. Keying on

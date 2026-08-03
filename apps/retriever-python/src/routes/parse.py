@@ -6,6 +6,7 @@ in src.sqlguard, and all policy lives in the Go guard that consumes this.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -18,6 +19,17 @@ from src.sqlguard.parse import ParseRequestError, summarize, validate_request
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# MAX_REQUEST_BYTES bounds the whole request body.
+#
+# A conforming request is small: question_request.v1 caps the SQL at 20000
+# characters. This bounds what a non-conforming one can make the service
+# allocate before it finds that out.
+MAX_REQUEST_BYTES = 256 * 1024
+
+
+def _too_large() -> JSONResponse:
+    return JSONResponse({"error": "request body is too large"}, status_code=413)
 
 
 @router.post("/v1/parse")
@@ -33,8 +45,28 @@ async def parse(request: Request) -> JSONResponse:
     A malformed *request* is a 400: that is the runtime calling this service
     wrongly, and it is not something a retry or a repair can fix.
     """
+    # Bounded BEFORE the read. validate_request enforces MAX_SQL_CHARS, but it
+    # runs after the body is already in memory, so the size check would not
+    # actually bound the resource. The endpoint is reachable unauthenticated
+    # from anything on the compose network.
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > MAX_REQUEST_BYTES:
+                return _too_large()
+        except ValueError:
+            return _bad_request("content-length must be an integer")
+
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        # A chunked request can omit content-length entirely, so the running
+        # total is the check that actually holds.
+        if len(body) > MAX_REQUEST_BYTES:
+            return _too_large()
+
     try:
-        payload = await request.json()
+        payload = json.loads(body)
     except Exception:
         return _bad_request("body must be valid JSON")
 
@@ -43,7 +75,15 @@ async def parse(request: Request) -> JSONResponse:
     except ParseRequestError as exc:
         return _bad_request(str(exc))
 
-    summary: dict[str, Any] = summarize(parse_request)
+    try:
+        summary: dict[str, Any] = summarize(parse_request)
+    except Exception:
+        # summarize promises not to raise. If it ever does, that is our bug and
+        # it belongs in the log as one — not forwarded to a caller that would
+        # read a 500 as "the parser is down" and fail an otherwise fine run
+        # closed.
+        logger.exception("summarize raised despite promising not to")
+        return JSONResponse({"error": "internal error summarizing the statement"}, status_code=500)
 
     # Validated on the way out as well as in. The guard fails closed on a
     # document it cannot read, so emitting one that violates the contract would

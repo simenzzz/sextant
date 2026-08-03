@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"runtime/debug"
+	"time"
 
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/agent"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/clock"
@@ -31,6 +32,13 @@ const (
 // run. A run is bounded by construction, so this is generous.
 const emitBuffer = 64
 
+// persistTimeout bounds a write that must outlive the run's own context.
+//
+// Short: these run after the answer is already on the wire, and a slow disk
+// must not hold a run slot open. Bounded rather than unbounded so shutdown
+// still drains.
+const persistTimeout = 5 * time.Second
+
 // streamRun executes one run and writes its whole stream.
 //
 // The single-writer discipline lives here. The agent loop runs on its own
@@ -45,10 +53,24 @@ const emitBuffer = 64
 // agreeing.
 func (s *Server) streamRun(
 	ctx context.Context,
+	cancel context.CancelFunc,
 	stream *httpx.SSEStream,
 	run trace.Run,
 	in agent.RunInput,
 ) {
+	// Persistence outlives the run's context, deliberately.
+	//
+	// ctx carries both the wall-clock cap and the client's connection, so it is
+	// already cancelled in exactly the two cases where recording matters most:
+	// a run that hit its deadline, and a reader that went away. Writing the
+	// trace, the ledger, and the outcome through it meant those writes failed
+	// silently — leaving the run row with an empty outcome, which the stream
+	// handler reads as "not started yet" and will happily run AGAIN. That turns
+	// the wall-clock cap into an unbounded spend loop, and it makes
+	// `deadline_exceeded` a recorded outcome that is never actually recorded.
+	persistCtx, endPersist := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	defer endPersist()
+
 	events := make(chan gen.TraceEventV1, emitBuffer)
 
 	// step and elapsed are stamped by the writer, not by the loop. They are
@@ -99,23 +121,37 @@ func (s *Server) streamRun(
 		ev.ElapsedMs = clock.ElapsedMS(s.deps.Clock, started)
 		step++
 
-		s.persistEvent(ctx, run.ID, ev)
+		s.persistEvent(persistCtx, run.ID, ev)
 
 		if err := s.send(ctx, stream, eventTrace, ev, contracts.TraceEventV1); err != nil {
-			// The client went away or the write deadline expired. Stop
-			// writing, but let the loop finish and be recorded: a run whose
-			// reader disconnected still happened and still cost money.
+			// The client went away or a frame hit its write deadline. Cancel
+			// the run rather than only stopping the writer: without this the
+			// producer fills the buffer, blocks in emit, and this goroutine
+			// blocks on <-done — pinning a run slot for the whole wall clock.
+			// Eight unread connections would then make every other client see
+			// 503 for as long as the cap allows.
 			s.deps.Logger.Info("trace stream ended early", "run_id", run.ID, "error", err)
+			cancel()
 			break
 		}
 	}
 
+	// Drain whatever the loop still emits, so a producer that raced the cancel
+	// cannot block forever on a send nobody receives.
+	for range events {
+	}
+
 	result := <-done
-	s.finish(ctx, stream, run, result)
+	s.finish(persistCtx, stream, run, result)
 }
 
 // finish writes the terminal frames and closes out the run.
-func (s *Server) finish(ctx context.Context, stream *httpx.SSEStream, run trace.Run, result agent.Result) {
+//
+// persistCtx outlives the run's own context: see streamRun. The SSE sends use
+// it too — a run that ended at its deadline still has an answer worth
+// delivering, and the frame write has its own deadline anyway.
+func (s *Server) finish(persistCtx context.Context, stream *httpx.SSEStream, run trace.Run, result agent.Result) {
+	ctx := persistCtx
 	if result.Rows != nil {
 		if err := s.send(ctx, stream, eventResultSet, result.Rows, contracts.ResultSetV1); err != nil {
 			s.deps.Logger.Info("result frame not delivered", "run_id", run.ID, "error", err)

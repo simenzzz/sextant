@@ -269,7 +269,18 @@ func buildAPI(
 	// P1 serves one database, so one executor. P3's dialect adapters make this
 	// a per-database map; the shape is deliberately left simple until then
 	// rather than generalised against a requirement that does not exist yet.
+	// One executor, so exactly one database may be configured. The API accepts
+	// every registered slug and loads THAT database's schema, so a second
+	// entry would mean a question planned against one schema and executed
+	// against another — wrong answers, or reads of a database the caller never
+	// named. Refusing at startup beats discovering it at query time.
 	slugs := registry.Slugs()
+	if len(slugs) > 1 {
+		return nil, fmt.Errorf(
+			"P1 serves a single database but %d are configured (%v); "+
+				"per-database executors arrive with the dialect adapters at P3",
+			len(slugs), slugs)
+	}
 	exec, err := executor.New(handles[slugs[0]], clk, cfg.MaxResultBytes)
 	if err != nil {
 		return nil, fmt.Errorf("building the executor: %w", err)

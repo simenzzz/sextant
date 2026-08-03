@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS runs (
     id          TEXT PRIMARY KEY,
     question    TEXT NOT NULL,
     database    TEXT NOT NULL,
+    -- External knowledge accompanying the question. BIRD supplies this per
+    -- item and it is often the only thing that makes a question answerable,
+    -- so it has to survive the POST/GET split: the run row is where the
+    -- question waits between the two.
+    evidence    TEXT NOT NULL DEFAULT '',
     started_at  TEXT NOT NULL,
     finished_at TEXT,
     outcome     TEXT

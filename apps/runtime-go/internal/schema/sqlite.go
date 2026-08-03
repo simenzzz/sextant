@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -153,6 +154,10 @@ func sqliteForeignKeys(ctx context.Context, db *sql.DB, table string) ([]Foreign
 // are truncated: a single wide TEXT column would otherwise dominate a prompt
 // that is paid for on every question.
 func sqliteSamples(ctx context.Context, db *sql.DB, table, column string) ([]string, error) {
+	// Failures here are tolerated but NOT silent. A column quietly missing its
+	// examples is the exact failure the schema card exists to prevent — a
+	// question about cancelled orders becomes unanswerable — so it has to be
+	// visible in the log rather than inferred from a wrong answer later.
 	q := fmt.Sprintf(
 		"SELECT DISTINCT %s FROM %s WHERE %s IS NOT NULL ORDER BY %s LIMIT %d",
 		quoteIdent(column), quoteIdent(table), quoteIdent(column), quoteIdent(column),
@@ -163,6 +168,8 @@ func sqliteSamples(ctx context.Context, db *sql.DB, table, column string) ([]str
 		// Not fatal. A column can be unsamplable — a type the driver will not
 		// scan, a generated column — and a schema card without one column's
 		// examples is far better than no schema card at all.
+		slog.Debug("schema: could not sample column",
+			"table", table, "column", column, "error", err)
 		return nil, nil
 	}
 	defer rows.Close()
@@ -171,6 +178,8 @@ func sqliteSamples(ctx context.Context, db *sql.DB, table, column string) ([]str
 	for rows.Next() {
 		var v sql.NullString
 		if err := rows.Scan(&v); err != nil {
+			slog.Debug("schema: could not scan a sampled value",
+				"table", table, "column", column, "error", err)
 			return out, nil
 		}
 		if v.Valid {
@@ -178,7 +187,8 @@ func sqliteSamples(ctx context.Context, db *sql.DB, table, column string) ([]str
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return out, nil
+		slog.Debug("schema: sampling ended early",
+			"table", table, "column", column, "error", err)
 	}
 	return out, nil
 }

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"time"
 
@@ -52,6 +53,7 @@ type TraceStore interface {
 	AppendEvent(ctx context.Context, runID string, ev trace.Event) error
 	AppendCost(ctx context.Context, runID string, e trace.CostEntry) error
 	LoadRun(ctx context.Context, runID string) (trace.Run, error)
+	ClaimRun(ctx context.Context, runID string) (bool, error)
 }
 
 // SchemaLoader resolves a database to its introspected schema.
@@ -138,6 +140,15 @@ const maxQuestionBody = 64 * 1024
 // also why the rate limit is applied here, where the cost of refusing is
 // lowest.
 func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
+	// A text/plain POST is a CORS "simple request" and needs no preflight, so
+	// without this any page a visitor opens could create runs on a reachable
+	// instance without the origin allowlist ever being consulted. Requiring
+	// application/json forces a preflight and puts the endpoint back behind
+	// the allowlist.
+	if ct := r.Header.Get("Content-Type"); !isJSONContentType(ct) {
+		writeError(w, http.StatusUnsupportedMediaType, "expected a JSON request body")
+		return
+	}
 	if !s.deps.Limiter.Allow(ratelimit.ClientKey(r, s.deps.TrustProxy)) {
 		writeError(w, http.StatusTooManyRequests, "too many questions; slow down")
 		return
@@ -191,9 +202,14 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	run := trace.Run{
-		ID:        runID,
-		Question:  req.Question,
-		Database:  db.Slug,
+		ID:       runID,
+		Question: req.Question,
+		Database: db.Slug,
+		// Carried across the POST/GET split. BIRD supplies evidence per item
+		// and prompt.go calls it "often the only thing that makes a question
+		// answerable" — dropping it here would make that comment describe a
+		// value that is always empty.
+		Evidence:  req.Evidence,
 		StartedAt: s.deps.Clock.Now(),
 	}
 	if err := s.deps.Trace.StartRun(r.Context(), run); err != nil {
@@ -223,10 +239,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if run.Outcome != "" {
-		// P1 has no replay. A finished run's trace is in the store; streaming
-		// it again would mean running it again, which would spend money a
-		// second time for a question already answered.
-		writeError(w, http.StatusConflict, "this run has already finished")
+		// Covers both a finished run and one already in flight. P1 has no
+		// replay: streaming again would mean RUNNING again, and spending money
+		// a second time for a question already asked.
+		writeError(w, http.StatusConflict, "this run has already been started")
 		return
 	}
 
@@ -236,16 +252,33 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Claim the run atomically. The LoadRun check above is a courtesy that
+	// gives a clean 409 on the common case; this is the one that actually
+	// holds, because two concurrent requests can both pass that check and only
+	// one can win this UPDATE. Without it, one POSTed question can be streamed
+	// N times concurrently and billed N times.
+	claimed, err := s.deps.Trace.ClaimRun(r.Context(), runID)
+	if err != nil {
+		s.deps.Logger.Error("claiming run", "run_id", runID, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not start a run")
+		return
+	}
+	if !claimed {
+		writeError(w, http.StatusConflict, "this run has already been started")
+		return
+	}
+
 	// Acquire a run slot before committing to a stream. Bounding concurrent
 	// loops bounds concurrent provider connections, which is the thing that
-	// actually costs money.
+	// actually costs money. Non-blocking: a queued client would hold the claim
+	// while waiting, and a 503 it can retry is better than a slot it cannot.
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
-	case <-r.Context().Done():
-		return
 	default:
 		writeError(w, http.StatusServiceUnavailable, "too many runs in flight; try again shortly")
+		// The claim has to come back, or a 503 would burn the run permanently.
+		s.releaseClaim(runID)
 		return
 	}
 
@@ -253,6 +286,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.deps.Logger.Error("loading schema", "database", db.Slug, "error", err)
 		writeError(w, http.StatusInternalServerError, "could not read the database schema")
+		s.releaseClaim(runID)
 		return
 	}
 
@@ -260,8 +294,13 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	// response is committed to being a stream.
 	stream, err := httpx.NewSSEStream(w)
 	if err != nil {
+		// NewSSEStream can fail after WriteHeader(200) — the flush path — at
+		// which point the response is committed and writeError would only log
+		// "superfluous WriteHeader" while the client reads a 200 carrying an
+		// error body. Nothing useful can be sent; log it and let the empty
+		// response stand.
 		s.deps.Logger.Error("opening the event stream", "run_id", runID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not open the event stream")
+		s.releaseClaim(runID)
 		return
 	}
 
@@ -271,9 +310,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.deps.WallClock)
 	defer cancel()
 
-	s.streamRun(ctx, stream, run, agent.RunInput{
+	s.streamRun(ctx, cancel, stream, run, agent.RunInput{
 		RunID:    run.ID,
 		Question: run.Question,
+		Evidence: run.Evidence,
 		Schema:   sch,
 		Dialect:  dialectOf(db),
 		Caps: agent.Caps{
@@ -284,6 +324,21 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		RowLimit:         s.deps.RowLimit,
 		StatementTimeout: s.deps.StatementTimeout,
 	})
+}
+
+// releaseClaim returns a claimed run to the unstarted state.
+//
+// Called on every path that claims and then cannot proceed. Without it a 503
+// or a failed schema load would burn the run permanently: the claim marks it
+// started, and nothing would ever finish it.
+func (s *Server) releaseClaim(runID string) {
+	// A fresh context: the request's may already be cancelled, and this write
+	// is what keeps the run usable.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), persistTimeout)
+	defer cancel()
+	if err := s.deps.Trace.FinishRun(ctx, runID, "", s.deps.Clock.Now()); err != nil {
+		s.deps.Logger.Error("releasing run claim", "run_id", runID, "error", err)
+	}
 }
 
 func dialectOf(db dbreg.Database) gen.SqlPlanV1Dialect {
@@ -304,6 +359,18 @@ func newRunID() (string, error) {
 		return "", err
 	}
 	return "r_" + hex.EncodeToString(b[:]), nil
+}
+
+// isJSONContentType reports whether a Content-Type header names JSON.
+//
+// Tolerant of parameters (`application/json; charset=utf-8`) because clients
+// legitimately send them, and of case because the header is case-insensitive.
+func isJSONContentType(header string) bool {
+	mediaType, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		return false
+	}
+	return mediaType == "application/json"
 }
 
 // writeError returns a JSON error with a message safe for a client.

@@ -1,0 +1,622 @@
+{
+  "_comment": "GENERATED from real sqlglot output. Regenerate when sqlglot moves: the generator lives in the commit that added this file, and the point is that the Go allowlists are checked against what the parser ACTUALLY emits rather than against what someone assumed it emits.",
+  "sqlglot_version": "30.14.0",
+  "legitimate": [
+    {
+      "sql": "SELECT COUNT(*) FROM orders WHERE status = 'C'",
+      "node_kinds": [
+        "Column",
+        "Count",
+        "EQ",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table",
+        "Where"
+      ],
+      "functions": [
+        "count"
+      ]
+    },
+    {
+      "sql": "SELECT CASE WHEN price > 100 THEN 'high' ELSE 'low' END AS band, COUNT(*) FROM products GROUP BY 1",
+      "node_kinds": [
+        "Alias",
+        "Case",
+        "Column",
+        "Count",
+        "From",
+        "GT",
+        "Group",
+        "Identifier",
+        "If",
+        "Literal",
+        "Select",
+        "Star",
+        "Table"
+      ],
+      "functions": [
+        "case",
+        "count",
+        "if"
+      ]
+    },
+    {
+      "sql": "SELECT CAST(price AS INTEGER) FROM products",
+      "node_kinds": [
+        "Cast",
+        "Column",
+        "DataType",
+        "From",
+        "Identifier",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "cast"
+      ]
+    },
+    {
+      "sql": "SELECT name || ' (' || country || ')' AS label FROM customers",
+      "node_kinds": [
+        "Alias",
+        "Column",
+        "DPipe",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT strftime('%Y', placed_at) AS yr, COUNT(*) FROM orders GROUP BY 1",
+      "node_kinds": [
+        "Alias",
+        "Column",
+        "Count",
+        "From",
+        "Group",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table",
+        "TimeToStr",
+        "TsOrDsToTimestamp"
+      ],
+      "functions": [
+        "count",
+        "time_to_str",
+        "ts_or_ds_to_timestamp"
+      ]
+    },
+    {
+      "sql": "SELECT group_concat(name) FROM products",
+      "node_kinds": [
+        "Column",
+        "From",
+        "GroupConcat",
+        "Identifier",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "group_concat"
+      ]
+    },
+    {
+      "sql": "SELECT julianday('now') - julianday(placed_at) FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Sub",
+        "Table"
+      ],
+      "functions": [
+        "julianday"
+      ]
+    },
+    {
+      "sql": "SELECT printf('%.2f', price) FROM products",
+      "node_kinds": [
+        "Anonymous",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "printf"
+      ]
+    },
+    {
+      "sql": "SELECT COALESCE(name, 'unknown') FROM customers",
+      "node_kinds": [
+        "Coalesce",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "coalesce"
+      ]
+    },
+    {
+      "sql": "SELECT IFNULL(name,'x') FROM customers",
+      "node_kinds": [
+        "Coalesce",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "coalesce"
+      ]
+    },
+    {
+      "sql": "SELECT c.name, SUM(oi.quantity * p.price) AS rev FROM customers c JOIN orders o ON o.customer_id=c.id JOIN order_items oi ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id GROUP BY c.name HAVING SUM(oi.quantity) > 1 ORDER BY rev DESC",
+      "node_kinds": [
+        "Alias",
+        "Column",
+        "EQ",
+        "From",
+        "GT",
+        "Group",
+        "Having",
+        "Identifier",
+        "Join",
+        "Literal",
+        "Mul",
+        "Order",
+        "Ordered",
+        "Select",
+        "Sum",
+        "Table",
+        "TableAlias"
+      ],
+      "functions": [
+        "sum"
+      ]
+    },
+    {
+      "sql": "WITH t AS (SELECT id FROM orders WHERE status='S') SELECT COUNT(*) FROM t",
+      "node_kinds": [
+        "CTE",
+        "Column",
+        "Count",
+        "EQ",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table",
+        "TableAlias",
+        "Where",
+        "With"
+      ],
+      "functions": [
+        "count"
+      ]
+    },
+    {
+      "sql": "SELECT DISTINCT country FROM customers",
+      "node_kinds": [
+        "Column",
+        "Distinct",
+        "From",
+        "Identifier",
+        "Select",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT * FROM orders WHERE placed_at BETWEEN '2026-01-01' AND '2026-06-30'",
+      "node_kinds": [
+        "Between",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table",
+        "Where"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT name FROM products WHERE name LIKE '%Sextant%'",
+      "node_kinds": [
+        "Column",
+        "From",
+        "Identifier",
+        "Like",
+        "Literal",
+        "Select",
+        "Table",
+        "Where"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT id, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY placed_at) rn FROM orders",
+      "node_kinds": [
+        "Alias",
+        "Column",
+        "From",
+        "Identifier",
+        "Order",
+        "Ordered",
+        "RowNumber",
+        "Select",
+        "Table",
+        "Window"
+      ],
+      "functions": [
+        "row_number"
+      ]
+    },
+    {
+      "sql": "SELECT AVG(price), MIN(price), MAX(price), ROUND(AVG(price),2) FROM products",
+      "node_kinds": [
+        "Avg",
+        "Column",
+        "From",
+        "Identifier",
+        "Literal",
+        "Max",
+        "Min",
+        "Round",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "avg",
+        "max",
+        "min",
+        "round"
+      ]
+    },
+    {
+      "sql": "SELECT UPPER(name), LOWER(country), LENGTH(name), SUBSTR(name,1,3), TRIM(name) FROM customers",
+      "node_kinds": [
+        "Column",
+        "From",
+        "Identifier",
+        "Length",
+        "Literal",
+        "Lower",
+        "Select",
+        "Substring",
+        "Table",
+        "Trim",
+        "Upper"
+      ],
+      "functions": [
+        "length",
+        "lower",
+        "substring",
+        "trim",
+        "upper"
+      ]
+    },
+    {
+      "sql": "SELECT id FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE country='LB')",
+      "node_kinds": [
+        "Column",
+        "EQ",
+        "From",
+        "Identifier",
+        "In",
+        "Literal",
+        "Select",
+        "Subquery",
+        "Table",
+        "Where"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT id FROM orders WHERE EXISTS (SELECT 1 FROM order_items WHERE order_id=orders.id)",
+      "node_kinds": [
+        "Column",
+        "EQ",
+        "Exists",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table",
+        "Where"
+      ],
+      "functions": [
+        "exists"
+      ]
+    },
+    {
+      "sql": "SELECT a.id FROM orders a LEFT JOIN customers b ON a.customer_id=b.id WHERE b.id IS NULL",
+      "node_kinds": [
+        "Column",
+        "EQ",
+        "From",
+        "Identifier",
+        "Is",
+        "Join",
+        "Null",
+        "Select",
+        "Table",
+        "TableAlias",
+        "Where"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT status, COUNT(*) FROM orders GROUP BY status UNION SELECT 'all', COUNT(*) FROM orders",
+      "node_kinds": [
+        "Column",
+        "Count",
+        "From",
+        "Group",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table",
+        "Union"
+      ],
+      "functions": [
+        "count"
+      ]
+    },
+    {
+      "sql": "SELECT id FROM orders ORDER BY placed_at DESC LIMIT 10 OFFSET 5",
+      "node_kinds": [
+        "Column",
+        "From",
+        "Identifier",
+        "Limit",
+        "Literal",
+        "Offset",
+        "Order",
+        "Ordered",
+        "Select",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT SUM(CASE WHEN status='C' THEN 1 ELSE 0 END) FROM orders",
+      "node_kinds": [
+        "Case",
+        "Column",
+        "EQ",
+        "From",
+        "Identifier",
+        "If",
+        "Literal",
+        "Select",
+        "Sum",
+        "Table"
+      ],
+      "functions": [
+        "case",
+        "if",
+        "sum"
+      ]
+    },
+    {
+      "sql": "SELECT date(placed_at), COUNT(*) FROM orders GROUP BY 1",
+      "node_kinds": [
+        "Column",
+        "Count",
+        "Date",
+        "From",
+        "Group",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Star",
+        "Table"
+      ],
+      "functions": [
+        "count",
+        "date"
+      ]
+    },
+    {
+      "sql": "SELECT p.category, COUNT(DISTINCT o.customer_id) FROM products p JOIN order_items oi ON oi.product_id=p.id JOIN orders o ON o.id=oi.order_id GROUP BY p.category",
+      "node_kinds": [
+        "Column",
+        "Count",
+        "Distinct",
+        "EQ",
+        "From",
+        "Group",
+        "Identifier",
+        "Join",
+        "Select",
+        "Table",
+        "TableAlias"
+      ],
+      "functions": [
+        "count"
+      ]
+    }
+  ],
+  "adversarial": [
+    {
+      "sql": "DROP TABLE users",
+      "node_kinds": [
+        "Drop",
+        "Identifier",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "DELETE FROM orders",
+      "node_kinds": [
+        "Delete",
+        "Identifier",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "INSERT INTO orders(id) VALUES(1)",
+      "node_kinds": [
+        "Identifier",
+        "Insert",
+        "Literal",
+        "Schema",
+        "Table",
+        "Tuple",
+        "Values"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "UPDATE orders SET status='P'",
+      "node_kinds": [
+        "Column",
+        "EQ",
+        "Identifier",
+        "Literal",
+        "Table",
+        "Update"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "ATTACH DATABASE 'x' AS y",
+      "node_kinds": [
+        "Alias",
+        "Attach",
+        "Identifier",
+        "Literal"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "PRAGMA table_info(orders)",
+      "node_kinds": [
+        "Column",
+        "EQ",
+        "Identifier",
+        "Pragma",
+        "Var"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "CREATE TABLE t(id INT)",
+      "node_kinds": [
+        "ColumnDef",
+        "Create",
+        "DataType",
+        "Identifier",
+        "Schema",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "ALTER TABLE orders RENAME TO x",
+      "node_kinds": [
+        "Alter",
+        "AlterRename",
+        "Identifier",
+        "Table"
+      ],
+      "functions": []
+    },
+    {
+      "sql": "SELECT readfile('/etc/passwd') FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "readfile"
+      ]
+    },
+    {
+      "sql": "SELECT writefile('a','b') FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "writefile"
+      ]
+    },
+    {
+      "sql": "SELECT load_extension('x') FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "load_extension"
+      ]
+    },
+    {
+      "sql": "SELECT pg_read_file('/etc/passwd') FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "pg_read_file"
+      ]
+    },
+    {
+      "sql": "SELECT lo_import('/etc/passwd') FROM orders",
+      "node_kinds": [
+        "Anonymous",
+        "From",
+        "Identifier",
+        "Literal",
+        "Select",
+        "Table"
+      ],
+      "functions": [
+        "lo_import"
+      ]
+    }
+  ]
+}

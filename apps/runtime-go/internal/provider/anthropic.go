@@ -112,6 +112,17 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req Request) (<-chan Str
 	out := make(chan StreamEvent)
 	go func() {
 		defer close(out)
+		// Verified in the SDK source: Stream.Close() closes the decoder, which
+		// closes the response body. Next() returning false on EOF does NOT —
+		// so without this the body leaks on the SUCCESS path too, not only on
+		// the early returns. Under the wall-clock cap the cancelled-mid-stream
+		// path is the common one, and a leaked connection per question is a
+		// file-descriptor exhaustion with a slow fuse.
+		defer func() {
+			if err := stream.Close(); err != nil {
+				p.logger.Debug("provider: closing anthropic stream", "error", err)
+			}
+		}()
 		p.drain(ctx, stream, out)
 	}()
 	return out, nil

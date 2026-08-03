@@ -33,3 +33,25 @@ describe('apiUrl', () => {
     )
   })
 })
+
+describe('origin containment', () => {
+  it('refuses a protocol-relative path that escapes the base', () => {
+    // The leading-slash rule alone does NOT prevent this: new URL() resolves
+    // '//evil.example/x' against any base to http://evil.example/x. Run paths
+    // come from a server response, so the check has to be on the result.
+    expect(() => apiUrl('//evil.example/x', 'http://localhost:8080')).toThrow(/origin/)
+    expect(() => apiUrl('//evil.example', 'http://localhost:8080')).toThrow(/origin/)
+    expect(() => apiUrl('///evil.example/x', 'http://localhost:8080')).toThrow(/origin/)
+  })
+
+  it('still accepts ordinary run paths', () => {
+    expect(apiUrl('/v1/runs/r_abc/events', 'http://localhost:8080')).toBe(
+      'http://localhost:8080/v1/runs/r_abc/events',
+    )
+  })
+
+  it('refuses a path that is not rooted', () => {
+    expect(() => apiUrl('v1/runs/x', 'http://localhost:8080')).toThrow(/must start with/)
+    expect(() => apiUrl('@evil.example/x', 'http://localhost:8080')).toThrow(/must start with/)
+  })
+})

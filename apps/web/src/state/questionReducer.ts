@@ -106,6 +106,13 @@ export function questionReducer(state: QuestionState, action: Action): QuestionS
       return { ...initialState, status: 'connecting' }
 
     case 'status_changed':
+      // Once a run has reached a terminal event it is over, and the transport
+      // closing is expected rather than a fault. EventSource reports a normal
+      // server close as `onerror`, so without this an answered run would end
+      // up rendered as an error.
+      if (state.outcome !== null && action.status === 'error') {
+        return { ...state, status: 'closed' }
+      }
       return { ...state, status: action.status }
 
     case 'event_received': {

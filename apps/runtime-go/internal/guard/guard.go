@@ -45,11 +45,19 @@ import (
 //     silently, and a denylist next to it would quietly restore the old
 //     failure mode.
 //
-//  5. Walk the function names against AllowedFunctions, lowercased. This is
-//     the step that refuses pg_read_file, readfile, writefile and lo_import.
-//     It is separate from step 4 on purpose: a parser renders functions it
-//     knows as their own node kind but everything else as one shared kind, so
-//     node kinds alone cannot tell COUNT from pg_read_file.
+//  5. Walk the function names against AllowedFunctions, lowercased.
+//
+//     This step is not a second opinion — it is the ONLY thing refusing
+//     readfile, writefile, load_extension, pg_read_file and lo_import. Step 4
+//     cannot help: a parser renders functions it knows as their own node kind
+//     and everything else as one shared kind, "Anonymous", and measurement
+//     showed that printf and julianday arrive as Anonymous too. Excluding that
+//     kind would refuse ordinary SQL; including it admits every unknown
+//     function. Only the NAMES separate them.
+//
+//     So do not treat this step as redundant with step 4, and do not "harden"
+//     the guard by dropping Anonymous from AllowedNodeKinds — that trades a
+//     real defence for a broken one.
 //
 //  6. Require at least one table, and prove the subset. summary.Tables must
 //     be non-empty and every entry must appear in policy.AllowedTables.

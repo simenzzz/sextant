@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/clock"
@@ -88,13 +89,22 @@ func (e *Executor) Execute(ctx context.Context, runID string, plan gen.SqlPlanV1
 
 	rows, err := e.db.QueryContext(ctx, plan.Sql)
 	if err != nil {
-		return gen.ResultSetV1{}, fmt.Errorf("executor: running statement: %w", err)
+		// Classified HERE, at this package's own boundary, exactly as the
+		// provider and the parser client classify at theirs. Relying on the
+		// agent loop to remember not to forward a driver error would be
+		// relying on the one place the guidance is only a comment — and at P3
+		// a Postgres connection error carries host, port, user, and sometimes
+		// the database name.
+		return gen.ResultSetV1{}, e.classify(err)
 	}
 	defer rows.Close()
 
 	result, err := e.scan(rows, runID, plan)
 	if err != nil {
 		return gen.ResultSetV1{}, err
+	}
+	if err := rows.Err(); err != nil {
+		return gen.ResultSetV1{}, e.classify(err)
 	}
 	elapsed := clock.ElapsedMS(e.clk, start)
 	result.ElapsedMs = &elapsed
@@ -134,21 +144,94 @@ func (e *Executor) scan(rows *sql.Rows, runID string, plan gen.SqlPlanV1) (gen.R
 		// truncated frame must never understate the result.
 		result.RowCount++
 
+		// An independent row ceiling. The LIMIT is the guard's, and the byte
+		// budget bounds the FRAME rather than the scan — so without this a
+		// narrow result can exceed result_set.v1's 10000-row maximum inside
+		// 1 MiB, fail contract validation on the way out, and be dropped. The
+		// user then gets no answer and only a server log says why.
+		if result.RowCount > maxScannedRows {
+			result.Truncated = true
+			break
+		}
+
 		if result.Truncated {
 			continue
 		}
-		if size, err := marshalledSize(cells); err != nil || size > budget {
+		size, err := marshalledSize(cells)
+		if err != nil {
+			// NOT the same as hitting the byte budget. Laundering an
+			// unmarshallable cell into "truncated" tells the user their result
+			// was too big, which is undiagnosable and untrue.
+			return gen.ResultSetV1{}, fmt.Errorf("executor: encoding row %d: %w", result.RowCount, err)
+		}
+		if size > budget {
 			result.Truncated = true
 			continue
-		} else {
-			budget -= size
 		}
+		budget -= size
 		result.Rows = append(result.Rows, cells)
 	}
-	if err := rows.Err(); err != nil {
-		return gen.ResultSetV1{}, fmt.Errorf("executor: reading rows: %w", err)
-	}
 	return result, nil
+}
+
+// maxScannedRows mirrors result_set.v1's rows maxItems.
+//
+// Reading past it cannot produce a document the contract admits, so stopping
+// there costs nothing and prevents a frame that would be dropped downstream.
+const maxScannedRows = 10000
+
+// Failure kinds this package reports, from trace_event.v1's enum.
+const (
+	KindTimeout       = "timeout"
+	KindUnknownTable  = "unknown_table"
+	KindUnknownColumn = "unknown_column"
+	KindSyntaxError   = "syntax_error"
+	KindTypeMismatch  = "type_mismatch"
+	KindInternalError = "internal_error"
+)
+
+// Failure is a classified execution error.
+//
+// Kind is what the P4 repair loop keys its next prompt on — an unknown column
+// and a timeout deserve completely different follow-ups. Message is safe to
+// show; the driver's own text stays in the log.
+type Failure struct {
+	Kind    string
+	Message string
+}
+
+func (f *Failure) Error() string { return fmt.Sprintf("executor: %s: %s", f.Kind, f.Message) }
+
+// classify turns a driver error into something safe to report.
+//
+// A full taxonomy arrives at P3 with guard.Classify, against the adversarial
+// corpus and both dialects. This is the subset P1 needs, and it exists now so
+// the loop author cannot forward a raw driver error by omission.
+func (e *Executor) classify(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &Failure{Kind: KindTimeout, Message: "the query took too long and was stopped"}
+	}
+	if errors.Is(err, context.Canceled) {
+		return &Failure{Kind: KindInternalError, Message: "the query was cancelled"}
+	}
+
+	// Matched on the driver's text because database/sql exposes no typed
+	// errors for these. Deliberately coarse: a wrong classification only
+	// changes which repair prompt P4 picks, whereas forwarding the raw message
+	// would be a leak.
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "no such table"), strings.Contains(lower, "does not exist"):
+		return &Failure{Kind: KindUnknownTable, Message: "the query referenced a table that does not exist"}
+	case strings.Contains(lower, "no such column"), strings.Contains(lower, "no such function"):
+		return &Failure{Kind: KindUnknownColumn, Message: "the query referenced a column or function that does not exist"}
+	case strings.Contains(lower, "syntax error"):
+		return &Failure{Kind: KindSyntaxError, Message: "the database could not parse the statement"}
+	case strings.Contains(lower, "datatype mismatch"), strings.Contains(lower, "type mismatch"):
+		return &Failure{Kind: KindTypeMismatch, Message: "the query compared values of incompatible types"}
+	default:
+		return &Failure{Kind: KindInternalError, Message: "the query could not be run"}
+	}
 }
 
 func buildColumns(rows *sql.Rows) ([]gen.Column, error) {

@@ -207,3 +207,23 @@ describe('isFailure', () => {
     }
   })
 })
+
+describe('a finished run is not an error', () => {
+  const answered = questionReducer(initialState, {
+    type: 'event_received',
+    event: { schema: 'trace_event.v1', type: 'answered', step: 1, elapsed_ms: 5 },
+  })
+
+  it('treats the transport closing after a terminal event as closed', () => {
+    // EventSource reports a normal server close as onerror. Without this an
+    // answered run would render as an error the moment the server hung up.
+    const next = questionReducer(answered, { type: 'status_changed', status: 'error' })
+    expect(next.status).toBe('closed')
+    expect(next.outcome).toBe('answered')
+  })
+
+  it('still reports a genuine transport error before any outcome', () => {
+    const next = questionReducer(initialState, { type: 'status_changed', status: 'error' })
+    expect(next.status).toBe('error')
+  })
+})

@@ -10,6 +10,11 @@ free of any notion of what a "safe" query is.
 See PLAN.md section 5.2 and the P1 planning decisions in that file.
 """
 
-from src.sqlguard.parse import ParseRequest, summarize
+from src.sqlguard.parse import (
+    ParseRequest,
+    ParseRequestError,
+    summarize,
+    validate_request,
+)
 
-__all__ = ["ParseRequest", "summarize"]
+__all__ = ["ParseRequest", "ParseRequestError", "summarize", "validate_request"]

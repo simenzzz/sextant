@@ -15,9 +15,13 @@ var ErrRunNotFound = errors.New("trace: run not found")
 // finishes; a run that ended by hitting a cap records that cap as its outcome,
 // because a capped run is a recorded result and not an error.
 type Run struct {
-	ID         string
-	Question   string
-	Database   string
+	ID       string
+	Question string
+	Database string
+	// Evidence is the external knowledge submitted with the question. Stored
+	// because the run starts on the SSE connect, not on the POST — so the row
+	// is the only thing carrying the question across the two requests.
+	Evidence   string
 	StartedAt  time.Time
 	FinishedAt *time.Time
 	Outcome    string
@@ -53,12 +57,47 @@ func (s *Store) StartRun(ctx context.Context, run Run) error {
 		return fmt.Errorf("trace: StartRun requires a run id")
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO runs (id, question, database, started_at) VALUES (?, ?, ?, ?)`,
-		run.ID, run.Question, run.Database, run.StartedAt.UTC().Format(time.RFC3339Nano))
+		`INSERT INTO runs (id, question, database, evidence, started_at) VALUES (?, ?, ?, ?, ?)`,
+		run.ID, run.Question, run.Database, run.Evidence,
+		run.StartedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("trace: recording run %s: %w", run.ID, err)
 	}
 	return nil
+}
+
+// OutcomeRunning marks a run that has been claimed and is in flight.
+//
+// Not a trace_event.v1 type: it never reaches the wire. It exists so that
+// "has this run already been started?" is a question the database answers
+// atomically, rather than one two concurrent requests can both answer "no".
+const OutcomeRunning = "running"
+
+// ClaimRun marks an unstarted run as in flight, reporting whether the caller
+// won the claim.
+//
+// The whole point is the WHERE clause. Reading the outcome and then writing it
+// is two statements with a gap between them, and two requests that both read
+// an empty outcome will both start a loop — two provider bills for one
+// question. A single conditional UPDATE has no gap: exactly one caller sees a
+// row affected.
+//
+// A double-clicked link or a proxy retry is enough to hit this; it does not
+// take an attacker.
+func (s *Store) ClaimRun(ctx context.Context, runID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE runs SET outcome = ? WHERE id = ? AND (outcome IS NULL OR outcome = '')`,
+		OutcomeRunning, runID)
+	if err != nil {
+		return false, fmt.Errorf("trace: claiming run %s: %w", runID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		// "The driver could not tell us" must not become "you won the claim",
+		// which is the reading that starts a second paid loop.
+		return false, fmt.Errorf("trace: confirming claim of run %s: %w", runID, err)
+	}
+	return n == 1, nil
 }
 
 // FinishRun stamps a run's end and its outcome.
@@ -118,9 +157,9 @@ func (s *Store) LoadRun(ctx context.Context, runID string) (Run, error) {
 		outcomeCol sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, question, database, started_at, finished_at, outcome FROM runs WHERE id = ?`,
+		`SELECT id, question, database, evidence, started_at, finished_at, outcome FROM runs WHERE id = ?`,
 		runID,
-	).Scan(&run.ID, &run.Question, &run.Database, &started, &finished, &outcomeCol)
+	).Scan(&run.ID, &run.Question, &run.Database, &run.Evidence, &started, &finished, &outcomeCol)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Run{}, fmt.Errorf("%w: %s", ErrRunNotFound, runID)
 	}

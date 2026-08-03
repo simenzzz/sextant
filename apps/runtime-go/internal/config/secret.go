@@ -1,6 +1,9 @@
 package config
 
-import "log/slog"
+import (
+	"log/slog"
+	"strings"
+)
 
 // redacted is what a Secret renders as, everywhere.
 const redacted = "[REDACTED]"
@@ -55,5 +58,40 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("row_limit", c.RowLimit),
 		slog.Duration("statement_timeout", c.StatementTimeout),
 		slog.Duration("shutdown_grace", c.ShutdownGrace),
+		// Slugs only, never the raw registry. A Postgres entry's DSN carries
+		// the database password (postgres://user:pass@host/db), so logging
+		// SEXTANT_DATABASES verbatim would write a credential into stdout on
+		// every start — the same class of leak the API key constant exists to
+		// prevent, arriving through a field nobody thinks of as a secret.
+		slog.Any("databases", databaseSlugs(c.Databases)),
+		slog.Duration("parser_timeout", c.ParserTimeout),
+		slog.Int("max_concurrent_runs", c.MaxConcurrentRuns),
+		slog.Int("rate_limit_burst", c.RateLimitBurst),
+		slog.Float64("rate_limit_per_minute", c.RateLimitPerMinute),
+		slog.Int("max_result_bytes", c.MaxResultBytes),
 	)
+}
+
+// databaseSlugs extracts just the names from a registry spec.
+//
+// Deliberately a dumb split rather than a call into dbreg: this runs on the
+// logging path, it must not fail or panic on a malformed spec, and config
+// importing dbreg while dbreg wants config's ceilings is a cycle waiting to
+// happen. Anything unparseable is reported as such rather than echoed, since
+// echoing is exactly what this function exists to avoid.
+func databaseSlugs(spec string) []string {
+	var out []string
+	for _, entry := range strings.Split(spec, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		slug, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			out = append(out, "(malformed entry)")
+			continue
+		}
+		out = append(out, strings.TrimSpace(slug))
+	}
+	return out
 }

@@ -294,3 +294,73 @@ func TestCeilingsMatchTheContracts(t *testing.T) {
 		})
 	}
 }
+
+func TestLogValueNeverEchoesADatabasePassword(t *testing.T) {
+	// SEXTANT_DATABASES can carry a Postgres DSN, and a DSN carries the
+	// database password. Logging the registry verbatim would write a
+	// credential to stdout on every start — the same class of leak the API key
+	// constant prevents, arriving through a field nobody thinks of as a secret.
+	cfg := Config{
+		Databases: "toy=sqlite:/data/toy.sqlite,demo=postgres://sextant:hunter2@db:5432/sextant",
+	}
+
+	rendered := renderLogValue(t, cfg)
+	for _, secret := range []string{"hunter2", "postgres://", "/data/toy.sqlite"} {
+		if strings.Contains(rendered, secret) {
+			t.Errorf("Config.LogValue() leaked %q:\n%s", secret, rendered)
+		}
+	}
+	// The slugs are the useful part and are safe: the operator chose them.
+	for _, slug := range []string{"toy", "demo"} {
+		if !strings.Contains(rendered, slug) {
+			t.Errorf("Config.LogValue() omitted the %q slug; an operator cannot see "+
+				"what is configured:\n%s", slug, rendered)
+		}
+	}
+}
+
+func TestLogValueCarriesTheP1Bounds(t *testing.T) {
+	// These are what an operator checks when a question is refused or a run is
+	// queued. Missing from the startup log means guessing.
+	cfg := Config{
+		Databases: "toy=sqlite:t.sqlite", ParserTimeout: 5 * time.Second,
+		MaxConcurrentRuns: 8, RateLimitBurst: 5, RateLimitPerMinute: 20, MaxResultBytes: 1 << 20,
+	}
+	rendered := renderLogValue(t, cfg)
+	for _, key := range []string{
+		"parser_timeout", "max_concurrent_runs", "rate_limit_burst",
+		"rate_limit_per_minute", "max_result_bytes", "databases",
+	} {
+		if !strings.Contains(rendered, key) {
+			t.Errorf("Config.LogValue() omits %q:\n%s", key, rendered)
+		}
+	}
+}
+
+func TestDatabaseSlugsIsTotal(t *testing.T) {
+	// It runs on the logging path, so it must not panic or fail on a spec that
+	// never made it past validation.
+	for _, spec := range []string{"", "   ", ",,,", "no-equals-here", "a=", "=b", "a=b=c"} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("databaseSlugs(%q) panicked: %v", spec, r)
+				}
+			}()
+			got := databaseSlugs(spec)
+			for _, slug := range got {
+				if strings.Contains(slug, "=") {
+					t.Errorf("databaseSlugs(%q) = %v, which still carries a DSN", spec, got)
+				}
+			}
+		}()
+	}
+}
+
+// renderLogValue formats a Config through slog exactly as the server does.
+func renderLogValue(t *testing.T, cfg Config) string {
+	t.Helper()
+	var b strings.Builder
+	slog.New(slog.NewTextHandler(&b, nil)).Info("configuration loaded", "config", cfg)
+	return b.String()
+}

@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,22 +13,52 @@ import (
 )
 
 func TestBuildProvider(t *testing.T) {
+	// Enough to construct the real adapter. No network call is made here:
+	// NewAnthropicProvider only builds a client, and the SDK does not dial
+	// until a request is streamed.
+	usable := config.Config{
+		ProviderAPIKey:  config.Secret("test-key-not-real"),
+		ProviderBaseURL: config.DefaultProviderBaseURL,
+		ProviderTimeout: config.DefaultProviderTimeout,
+	}
+	withProvider := func(name string) config.Config {
+		cfg := usable
+		cfg.Provider = name
+		return cfg
+	}
+
 	tests := []struct {
 		name       string
-		provider   string
+		cfg        config.Config
 		wantErr    bool
 		errMatches string
 	}{
-		{name: "fake is available", provider: config.ProviderFake},
+		{name: "fake is available", cfg: withProvider(config.ProviderFake)},
+		{name: "anthropic is available", cfg: withProvider(config.ProviderAnthropic)},
 		{
-			name:       "anthropic is not implemented until P1",
-			provider:   config.ProviderAnthropic,
+			// The defect PLAN.md section 12 singles out. The adapter refuses
+			// rather than defaulting, so a config that lost its timeout fails
+			// at startup instead of shipping an unbounded provider client.
+			name: "anthropic without a timeout is refused",
+			cfg: config.Config{
+				Provider:       config.ProviderAnthropic,
+				ProviderAPIKey: config.Secret("k"),
+			},
 			wantErr:    true,
-			errMatches: "not implemented until P1",
+			errMatches: "positive HTTP timeout",
+		},
+		{
+			name: "anthropic without a key is refused",
+			cfg: config.Config{
+				Provider:        config.ProviderAnthropic,
+				ProviderTimeout: config.DefaultProviderTimeout,
+			},
+			wantErr:    true,
+			errMatches: "API key",
 		},
 		{
 			name:       "unknown provider is rejected",
-			provider:   "openai",
+			cfg:        withProvider("openai"),
 			wantErr:    true,
 			errMatches: "unknown provider",
 		},
@@ -34,11 +66,11 @@ func TestBuildProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildProvider(config.Config{Provider: tt.provider})
+			got, err := buildProvider(tt.cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("buildProvider(%q) = nil error, want a failure", tt.provider)
+					t.Fatalf("buildProvider(%q) = nil error, want a failure", tt.cfg.Provider)
 				}
 				if !strings.Contains(err.Error(), tt.errMatches) {
 					t.Errorf("error = %q, want it to contain %q", err, tt.errMatches)
@@ -49,7 +81,7 @@ func TestBuildProvider(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("buildProvider(%q) = %v, want nil", tt.provider, err)
+				t.Fatalf("buildProvider(%q) = %v, want nil", tt.cfg.Provider, err)
 			}
 			if got == nil {
 				t.Error("buildProvider returned a nil provider and no error")

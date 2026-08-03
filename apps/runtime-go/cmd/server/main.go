@@ -77,11 +77,11 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
-	prov, err := buildProvider(cfg)
+	prov, err := buildProvider(cfg, logger)
 	if err != nil {
 		return fmt.Errorf("building provider: %w", err)
 	}
-	_ = prov // wired into the agent loop in P1
+	_ = prov // wired into the agent loop later in P1
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -132,15 +132,30 @@ func run(logger *slog.Logger) error {
 
 // buildProvider selects the LLM backend. The fake is the default, so a fresh
 // clone runs with no credential and cannot make a paid call by accident.
-func buildProvider(cfg config.Config) (provider.Provider, error) {
+func buildProvider(cfg config.Config, logger *slog.Logger) (provider.Provider, error) {
 	switch cfg.Provider {
 	case config.ProviderFake:
 		return &provider.FakeProvider{}, nil
 	case config.ProviderAnthropic:
-		// The real adapter lands in P1. It must set an explicit HTTP client
-		// timeout: council's provider shipped without one, and a hung upstream
-		// connection was then bounded only by the session context.
-		return nil, errors.New(`provider "anthropic" is not implemented until P1; set SEXTANT_PROVIDER=fake`)
+		// The timeout is passed explicitly and the adapter refuses a
+		// non-positive one. council's provider shipped without a timeout and a
+		// hung upstream connection was then bounded only by the session
+		// context; PLAN.md section 12 names it as the one defect not to repeat.
+		p, err := provider.NewAnthropicProvider(provider.AnthropicConfig{
+			APIKey:  cfg.ProviderAPIKey.Reveal(),
+			BaseURL: cfg.ProviderBaseURL,
+			Timeout: cfg.ProviderTimeout,
+			Logger:  logger,
+		})
+		if err != nil {
+			// Explicitly nil, not `return p, err`. A nil *AnthropicProvider
+			// assigned to the Provider interface produces a NON-nil interface
+			// holding a nil pointer, so `if prov != nil` would pass and the
+			// first Stream call would panic. Returning the interface's own nil
+			// is the only way to make that check mean what it reads as.
+			return nil, err
+		}
+		return p, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)
 	}

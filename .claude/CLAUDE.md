@@ -52,8 +52,9 @@ intellectual core; most do not exist yet and arrive with their phase.
 | Package | Function | Phase |
 | --- | --- | --- |
 | `internal/agent/loop.go` | `(*Agent).Run` — plan→retrieve→generate→validate→execute→observe | P1/P4 |
-| `internal/agent/budget.go` | `(*Budget).Charge` — three independent caps, correct recorded outcome on trip | P1 |
-| `internal/guard/guard.go` | `Validate` — allowlist AST walk, table-subset check, LIMIT injection/clamp | P3 |
+| `internal/agent/budget.go` | `(Budget).Charge` — three independent caps, correct recorded outcome on trip | P1 |
+| `internal/agent/extract.go` | `ExtractSQL` — recover the statement from raw model output | P1 |
+| `internal/guard/guard.go` | `Validate` — allowlist node walk, function allowlist, table-subset check, LIMIT settlement | P1 |
 | `internal/guard/taxonomy.go` | `Classify` — execution error → failure kind | P3 |
 | `internal/router/router.go` | `Decide` — result-set agreement, escalate, abstain | P6 |
 | `internal/cache/cache.go` | `Lookup` / `Store` — fingerprint scoping, threshold, invalidation | P7 |
@@ -62,9 +63,18 @@ intellectual core; most do not exist yet and arrive with their phase.
 
 Claude owns everything else: HTTP and SSE transport, config, trace store,
 executor and driver plumbing, read-only connections, provider adapters and
-`FakeProvider`, embeddings (off the shelf, per `PLAN.md` §3), the eval harness
-base and record/replay, contracts and codegen, Docker, CI, the Makefile, and all
-test harnesses — including the table-driven cases for Sami's stubs.
+`FakeProvider`, prompt construction and schema-card rendering, the sqlglot
+parse endpoint, the guard's allowlists and sidecar client, the cost ledger,
+embeddings (off the shelf, per `PLAN.md` §3), the eval harness base and
+record/replay, contracts and codegen, Docker, CI, the Makefile, and all test
+harnesses — including the table-driven cases for Sami's stubs.
+
+Two entries above changed at P1 and the reasons are worth keeping:
+`(Budget).Charge` is a **value** method returning a new `Budget` rather than
+`(*Budget).Charge` mutating in place — the immutability rule requires it, and it
+lets the P6 router evaluate whether an escalation fits without committing to the
+charge. `guard.Validate` moved **P3 → P1** because P1 executes model-written SQL
+and cannot ship behind a placeholder check; see `PLAN.md` §11.2.
 
 ---
 
@@ -99,7 +109,7 @@ sextant/
   PLAN.md                     source of truth for scope and phasing
   Makefile                    every workflow; `make help` lists them
   packages/contracts/
-    schemas/                  5 hand-authored JSON Schema 2020-12 contracts
+    schemas/                  7 hand-authored JSON Schema 2020-12 contracts
     fixtures/<name>/{valid,invalid}/   shared corpus, run by ALL THREE suites
     codegen/generate.sh       pinned generators; refuses to run on version drift
     codegen/versions.env      the pins
@@ -107,13 +117,25 @@ sextant/
     cmd/server/main.go        slog, config, signal ctx, ServeMux, graceful drain
     internal/config/          Load() + typed env helpers
     internal/contracts/       embedded schemas + Validate at every boundary
-    internal/provider/        Provider interface + FakeProvider
+    internal/provider/        Provider interface, FakeProvider, Anthropic adapter
+    internal/pricing/         versioned price table + the date it was checked
+    internal/clock/           the ONLY source of time; nothing else calls time.Now
+    internal/dbreg/           database slug → dialect + DSN; a key, never a path
+    internal/schema/          introspection, the schema card, the fingerprint
+    internal/executor/        read-only execution of a sql_plan.v1
+    internal/guard/           allowlists, the sidecar parse client, Validate
+    internal/agent/           the loop, budget, prompt, ledger, SQL extraction
+    internal/api/             POST /v1/questions, GET /v1/runs/{id}/events
+    internal/ratelimit/       per-client token bucket
     internal/trace/           SQLite trace store and cost ledger
     internal/httpx/           SSE stream writer
     internal/contracts/gen/   GENERATED — do not hand-edit
   apps/retriever-python/
     src/main.py               create_app() with an injectable runtime factory
     src/config.py             load_settings()
+    src/contracts.py          validate at every boundary, in and out
+    src/sqlguard/             sqlglot parsing — reports facts, decides nothing
+    src/routes/               one module per resource
     src/{embed,retrieve,rerank,schema}/   empty until P5
     src/models/gen/           GENERATED — do not hand-edit
   apps/web/

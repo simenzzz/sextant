@@ -190,13 +190,33 @@ useful diagnostic in the whole system.
 
 ### 5.2 SQL guard
 
-**AST-level validation, never regex.** Parse the generated SQL with `sqlglot`,
-then enforce:
+**AST-level validation, never regex.**
+
+**Where the parsing happens — decided at P1.** `sqlglot` is the better parser
+and lives in Python; the guard is Go. Rather than pick one, they are split: the
+retriever sidecar parses and reports facts as a `parse_summary.v1` (statement
+count, every AST node kind present, referenced tables, called functions, the
+statement re-rendered under a row cap), and `internal/guard.Validate` applies
+the policy to that summary. A summary is evidence, never a verdict. The sidecar
+holds no notion of a "safe" query and the guard does no parsing.
+
+Consequences to keep in view: the sidecar is on the hot path of every question,
+so it has an explicit client timeout and **fails closed** — unreachable must
+look nothing like approving. And because `parse_summary.v1` is a contract, a
+pure-Go parser can replace the sidecar at P3 without the policy changing.
+
+The guard then enforces:
 
 - Exactly one statement. Reject stacked queries.
 - Root node is a `SELECT` (or a CTE terminating in one). Reject every DDL/DML
   node type explicitly by allowlist, not denylist.
 - No `PRAGMA`, no `ATTACH`, no `COPY`, no file functions, no `pg_read_file`.
+  **Functions need their own allowlist, separate from node kinds.** A parser
+  renders a function it knows as its own node type (`COUNT` → `Count`) but
+  every function it does not know as one shared kind (`Anonymous`), so
+  `pg_read_file`, `readfile` and `lo_import` are indistinguishable from each
+  other — and from any unknown-but-harmless function — by node kind alone.
+  `parse_summary.v1` therefore carries `functions` as well as `node_kinds`.
 - Referenced tables must be a subset of the retrieved schema subset. A query
   touching a table the retriever never surfaced is a bug or an injection.
 - Inject a `LIMIT` if absent; clamp it if present and larger than the cap.
@@ -249,9 +269,29 @@ The intellectually distinctive part, and the direct descendant of `secProj`.
 **Tier 1 — cheap model.** Default `claude-haiku-4-5-20251001`. Handles the
 majority of questions.
 
-**Confidence signal.** Sample k=3 SQL candidates at temperature > 0, execute all
-three against the database, and measure agreement **on the result sets, not on
-the SQL text.** Two syntactically different queries that return identical rows
+**Confidence signal.** Sample k=3 SQL candidates, execute all three against the
+database, and measure agreement **on the result sets, not on the SQL text.**
+
+> ⚠️ **Corrected 2026-08-03, during P1.** This section originally said "at
+> temperature > 0". **Claude Sonnet 5 rejects a non-default `temperature` with
+> a 400**, as do Opus 4.7/4.8/5 and Fable 5 — the parameter was removed from
+> those models. Since Sonnet 5 is the intended Tier 2 (§5.4), the sampling
+> method described here cannot work on the escalation tier as written.
+>
+> Verified against the API reference, not assumed. `internal/provider`'s
+> adapter refuses to send a temperature to those models rather than 400-ing on
+> every escalated call or silently dropping it — a silent drop is the dangerous
+> one, because the router would believe it drew k independent samples when it
+> drew the same one k times, and self-consistency measured over identical
+> samples reports maximum confidence exactly when it has none.
+>
+> **Open, to decide at P6.** Options: vary the prompt rather than the sampler
+> (reorder the schema card, reword the instruction); use `effort` levels as the
+> axis of variation; sample k on the *cheap* tier only, where Haiku 4.5 still
+> accepts a temperature, and use Tier 2 purely as the tie-breaker; or drop
+> k-sampling for a different confidence signal entirely. The cheap-tier-only
+> option is the smallest change and may be sufficient, since §5.4's routing
+> question is about whether Tier 1 candidates disagree. Two syntactically different queries that return identical rows
 are the same answer; two similar-looking queries returning different rows are
 not. This is the right notion of self-consistency for this domain and it is worth
 a paragraph in the README.
@@ -373,9 +413,9 @@ that is measured rather than guessed.
 | # | Weeks | Deliverable | Done when |
 |---|---|---|---|
 | **P0** | 1 | Scaffold: repo, JSON Schema contracts + 4-language codegen + CI drift gate, Dockerfiles, compose, provider interface + `FakeProvider`, trace event schema, demo Postgres seeded, BIRD subset downloaded and loaded | CI green on an empty-but-real pipeline |
-| **P1** | 2–3 | **Thin slice.** Question → whole-schema prompt → SQL → guarded execute → result table in the browser, streaming over SSE. Cost ledger wired from day one. No retrieval, no routing, no repair. | You can ask a question in a browser and get a correct table back, and see what it cost |
+| **P1** | 2–3 | **Thin slice.** Question → whole-schema prompt → SQL → guarded execute → result table in the browser, streaming over SSE. Cost ledger wired from day one. **The AST guard's policy (`guard.Validate`) moved here from P3** — P1 executes model-written SQL, so it cannot ship behind a placeholder check. No retrieval, no routing, no repair. | You can ask a question in a browser and get a correct table back, and see what it cost |
 | **P2** | 3–4 | **Eval v0.** 50 BIRD questions, execution accuracy, record/replay fixtures, CI gate with a floor. | A baseline number exists and CI fails if it drops |
-| **P3** | 4–6 | SQL guard hardened: AST validation, dialect adapters (SQLite + Postgres), executor limits, error taxonomy, full adversarial fixture set | Every adversarial fixture is rejected, as a test |
+| **P3** | 4–6 | SQL guard hardened: **dialect adapters (SQLite + Postgres)**, executor limits, the error taxonomy (`Classify`), the full adversarial fixture set as executable fixtures, and revisiting the sidecar hop against a pure-Go parser | Every adversarial fixture is rejected, as a test |
 | **P4** | 6–8 | Repair loop + full agent trace + SSE trace timeline UI | Repair-loop lift is a measured number |
 | **P5** | 8–10 | Schema retriever: table docs, embeddings, FK expansion, rerank. Eval scaled to full BIRD dev. | Schema recall@k reported separately from EX |
 | **P6** | 10–12 | Uncertainty router: k-sample self-consistency on result sets, escalation, abstention | Coverage/accuracy curve published; the "does routing pay" question answered either way |
@@ -479,12 +519,33 @@ Resolve these when the phase arrives, not now. Record the answer here when made.
    abstraction is needed regardless. Postgres for the demo is a stronger signal
    but costs deploy complexity. Still open: Olist (#1) ships as CSVs and as a
    community SQLite build, so it seeds cleanly into either engine and does not
-   force the answer. Decide at P3 when the dialect adapters land.
+   force the answer. Decide at P3 when the dialect adapters land. **P1 is
+   SQLite-only**; the executor is built around a dialect seam and `dbreg`
+   already parses a `postgres:` prefix, so P3 adds an adapter rather than
+   restructuring.
 4. **Provider mix.** Anthropic for both tiers is simplest and gives clean cost
    accounting. z.ai GLM as the cheap tier reuses `council`'s adapter and is
    cheaper, but muddies the cost story with two price tables. Decide at P6.
 5. **Embedding model.** `all-MiniLM-L6-v2` is the default and adequate. Revisit
    only if schema recall@k is the measured bottleneck.
+
+### 11.2 P1 decisions — decided (2026-08-03)
+
+Taken before P1 scaffolding, recorded so they are not relitigated.
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | **`guard.Validate` moves P3 → P1** | P1 executes model-written SQL in a browser. Shipping it behind a placeholder check would contradict §5.2's "AST-level, never regex" and leave the P1 security review nothing real to review. P3 keeps dialect adapters, executor limits, `Classify`, and the fixture corpus. |
+| 2 | **Hybrid parse: sqlglot reports, Go decides** | Resolves §5.2 (sqlglot, Python) against the guard living in Go. See the box in §5.2. |
+| 3 | **New `result_set.v1`, streamed as a named SSE frame**; `cost_ledger.v1` likewise | `trace_event.v1` carries `row_count` but not the rows: every trace event is persisted, so result data there would bloat every stored timeline. Named frames keep "one protocol, two consumers" literally true. |
+| 4 | **P1 runs on `toy.sqlite` only** | See §11.1. Olist seeding moves to P5. |
+| 5 | **The run starts on the SSE connect, not on the POST** | `EventSource` can only GET. Starting on the GET means no event can be emitted before a reader exists — no buffer to size, no replay to write, no lost-first-frame race. |
+| 6 | **Per-IP limiter and a concurrent-run cap ship at P1** | P1 is the first phase that can spend money. The per-run budget bounds one question, not a thousand. |
+| 7 | **Sami's P1 stubs are four**: `Agent.Run`, `Budget.Charge`, `guard.Validate`, `agent.ExtractSQL` | Prompt construction and schema-card rendering stayed Claude's. |
+
+Two corrections this phase forced, both recorded above rather than silently
+patched: §5.4's temperature-based sampling does not work on the intended Tier 2
+model, and §11.1's "seeded at P1" was wrong.
 
 ### 11.1 Demo corpus — decided (2026-08-03)
 
@@ -541,10 +602,20 @@ Rejected, and why — recorded so it is not relitigated:
   risk that this system's failure modes — a confident wrong join, a hallucinated
   number — make worse rather than better.
 
+**When it is seeded — corrected 2026-08-03.** This section originally said P1
+seeds the corpus. It does not: **P1 runs against `infra/fixtures/toy.sqlite`
+only**, and Olist seeding moves to **P5**, where the retriever needs a schema
+big enough to retrieve over. The reasoning is the same one that chose Olist —
+the demo corpus is not what stresses retrieval — and P1's job is the loop, not
+the corpus. Seeding it at P1 would have meant a Kaggle credential, a
+multi-hundred-megabyte download, and an ingestion script inside a phase billed
+as a thin slice. The toy fixture is a faithful miniature: four tables, a real
+bridge table, and the `status = 'C'` encoding that makes sampled values matter.
+
 Deferred, not blocking:
 
 - **License.** Not verified; deliberately not gating a learning project. Check
-  it before the public deploy in §10, not before P1 seeds the corpus locally.
+  it before the public deploy in §10, not before P5 seeds the corpus locally.
 - **Subset size.** ~100k orders / ~110k order items is a few hundred MB in
   Postgres and free tiers are tight. Decide a subset when P8 picks a host.
 - **A second corpus, optional.** A small CAS inflation schema at P8 would give

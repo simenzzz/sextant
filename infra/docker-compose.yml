@@ -54,6 +54,9 @@ services:
       SEXTANT_PROVIDER: fake
       SEXTANT_RETRIEVER_URL: http://retriever:8000
       SEXTANT_TRACE_PATH: /data/trace.sqlite
+      # Mounted read-only below. P1 answers questions against the committed toy
+      # fixture; the Olist corpus arrives at P5 (PLAN.md 11.1).
+      SEXTANT_DATABASES: toy=sqlite:/data/fixtures/toy.sqlite
       # Must list the web origin, or the browser blocks every call to this
       # service and the health badge reads "unreachable" on a healthy stack.
       SEXTANT_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:${SEXTANT_WEB_PORT:-8081}
@@ -61,6 +64,9 @@ services:
       - "127.0.0.1:${SEXTANT_RUNTIME_PORT:-8080}:8080"
     volumes:
       - runtime-data:/data
+      # Read-only at the mount as well as in the DSN. The AST guard is not the
+      # only thing between a bad generation and the data.
+      - ../infra/fixtures:/data/fixtures:ro
     depends_on:
       demo-db:
         condition: service_healthy

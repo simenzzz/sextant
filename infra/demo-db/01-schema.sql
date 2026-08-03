@@ -1,7 +1,8 @@
 -- Postgres seed for the live demo.
 --
 -- PLACEHOLDER, still. The corpus is now decided — Olist, see PLAN.md §11.1 —
--- but it is seeded at P1, not here. What this file establishes meanwhile is
+-- but it is seeded at P5, not here. (P1 originally claimed the seeding; that
+-- was corrected during P1, which runs against infra/fixtures/toy.sqlite only.) What this file establishes meanwhile is
 -- the shape the real corpus arrives in: a read-only role, a schema with a
 -- genuine bridge table, and at least one column whose values matter more than
 -- its name. Olist keeps all three (order_items is the bridge; product

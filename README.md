@@ -6,10 +6,12 @@ execute it read-only, repair on failure, escalate to a stronger model when
 uncertain, and abstain rather than answer wrongly — with every token, dollar,
 and millisecond accounted for.
 
-> **Status: scaffolding (P0).** Nothing below is measured yet. The table is
-> reserved so the numbers land in the place they will be read, and every claim
-> in this README stays in the future tense until an eval run fills it in.
-> See [PLAN.md](./PLAN.md) for the full build plan.
+> **Status: P1 in progress.** The thin slice — question → SQL → guarded execute
+> → result table, streaming over SSE, with the cost ledger wired from day one —
+> is scaffolded and its four core functions are open stubs. Nothing below is
+> measured yet: the table is reserved so the numbers land in the place they will
+> be read, and every claim in this README stays in the future tense until an
+> eval run fills it in. See [PLAN.md](./PLAN.md) for the full build plan.
 
 ## Results
 

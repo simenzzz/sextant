@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,9 +21,17 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/agent"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/api"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/clock"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/config"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/dbreg"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/executor"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/guard"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/httpx"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/provider"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/ratelimit"
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/schema"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/trace"
 )
 
@@ -81,10 +90,59 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("building provider: %w", err)
 	}
-	_ = prov // wired into the agent loop later in P1
+
+	registry, err := dbreg.Parse(cfg.Databases)
+	if err != nil {
+		return fmt.Errorf("SEXTANT_DATABASES is invalid: %w", err)
+	}
+	if registry.Len() == 0 {
+		// Not fatal: /healthz still serves and the drift gate still passes.
+		// But every question will be refused, and that should be visible in
+		// the log rather than discovered from a 404.
+		logger.Warn("no databases configured; every question will be refused — set SEXTANT_DATABASES")
+	}
+
+	clk := clock.System{}
+	loader := schema.NewLoader()
+	handles, err := openDatabases(registry, loader)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for slug, db := range handles {
+			if err := db.Close(); err != nil {
+				logger.Error("closing database", "database", slug, "error", err)
+			}
+		}
+	}()
+
+	parser, err := guard.NewHTTPParser(cfg.RetrieverURL, cfg.ParserTimeout, logger)
+	if err != nil {
+		return fmt.Errorf("building the SQL parser client: %w", err)
+	}
+
+	limiter, err := ratelimit.New(ratelimit.Config{
+		Burst:     cfg.RateLimitBurst,
+		PerMinute: cfg.RateLimitPerMinute,
+		Clock:     clk,
+	})
+	if err != nil {
+		return fmt.Errorf("building the rate limiter: %w", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
+
+	// The question API is registered only when there is a database to serve.
+	// A configured-but-unusable endpoint would answer 404 for a reason the
+	// operator cannot see from the outside.
+	if registry.Len() > 0 {
+		srv, err := buildAPI(cfg, prov, parser, registry, loader, handles, limiter, clk, traceStore, logger)
+		if err != nil {
+			return err
+		}
+		srv.Routes(mux)
+	}
 
 	srv := &http.Server{
 		Addr: cfg.Addr,
@@ -165,4 +223,84 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"service":"runtime-go","status":"ok"}`))
+}
+
+// openDatabases opens a read-only handle per configured database and registers
+// it for schema introspection.
+//
+// Opened once at startup rather than per question: connecting is not free, and
+// a database that cannot be opened should stop the server rather than fail the
+// first question somebody asks.
+func openDatabases(registry *dbreg.Registry, loader *schema.Loader) (map[string]*sql.DB, error) {
+	handles := make(map[string]*sql.DB)
+	for _, slug := range registry.Slugs() {
+		db, err := registry.Lookup(slug)
+		if err != nil {
+			return nil, err
+		}
+		if db.Dialect != dbreg.DialectSQLite {
+			// Postgres arrives with the dialect adapters at P3. Refusing at
+			// startup beats accepting the config and failing every question.
+			return nil, fmt.Errorf("database %q: dialect %q is not supported until P3", slug, db.Dialect)
+		}
+		handle, err := executor.OpenSQLiteReadOnly(db.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("database %q: %w", slug, err)
+		}
+		handles[slug] = handle
+		loader.Register(slug, handle)
+	}
+	return handles, nil
+}
+
+// buildAPI assembles the question server.
+func buildAPI(
+	cfg config.Config,
+	prov provider.Provider,
+	parser guard.Parser,
+	registry *dbreg.Registry,
+	loader *schema.Loader,
+	handles map[string]*sql.DB,
+	limiter *ratelimit.Limiter,
+	clk clock.Clock,
+	traceStore *trace.Store,
+	logger *slog.Logger,
+) (*api.Server, error) {
+	// P1 serves one database, so one executor. P3's dialect adapters make this
+	// a per-database map; the shape is deliberately left simple until then
+	// rather than generalised against a requirement that does not exist yet.
+	slugs := registry.Slugs()
+	exec, err := executor.New(handles[slugs[0]], clk, cfg.MaxResultBytes)
+	if err != nil {
+		return nil, fmt.Errorf("building the executor: %w", err)
+	}
+
+	ag, err := agent.New(agent.Deps{
+		Provider:   prov,
+		Parser:     parser,
+		Executor:   exec,
+		Clock:      clk,
+		Logger:     logger,
+		CheapModel: cfg.CheapModel,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("building the agent: %w", err)
+	}
+
+	return api.New(api.Deps{
+		Agent:             ag,
+		Trace:             traceStore,
+		Databases:         registry,
+		Schemas:           loader,
+		Limiter:           limiter,
+		Clock:             clk,
+		Logger:            logger,
+		TrustProxy:        cfg.TrustProxy,
+		MaxConcurrentRuns: cfg.MaxConcurrentRuns,
+		MaxRepairDepth:    cfg.MaxRepairDepth,
+		BudgetUSD:         cfg.BudgetUSD,
+		WallClock:         cfg.WallClock,
+		RowLimit:          cfg.RowLimit,
+		StatementTimeout:  cfg.StatementTimeout,
+	})
 }

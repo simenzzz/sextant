@@ -31,6 +31,15 @@ type FakeProvider struct {
 	// StreamErr, when non-nil, is returned from Stream itself with a nil
 	// channel. Use it to exercise a request that never started.
 	StreamErr error
+	// OnStream, when non-nil, runs at the start of each Stream call, before
+	// any event is produced.
+	//
+	// The seam exists so a test can advance an injected clock while a run is
+	// in flight — driving a wall-clock cap to its limit without sleeping, and
+	// without the agent loop needing a hook of its own. It runs on the
+	// caller's goroutine, so a clock it touches must be safe for concurrent
+	// use; clock.Fake is.
+	OnStream func()
 
 	mu    sync.Mutex
 	calls []Request
@@ -40,6 +49,9 @@ var _ Provider = (*FakeProvider)(nil)
 
 // Stream implements Provider.
 func (f *FakeProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	if f.OnStream != nil {
+		f.OnStream()
+	}
 	if f.StreamErr != nil {
 		return nil, f.StreamErr
 	}

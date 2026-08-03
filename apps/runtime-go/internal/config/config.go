@@ -35,6 +35,14 @@ const (
 	DefaultRowLimit         = 500
 	DefaultStatementTimeout = 10 * time.Second
 	DefaultShutdownGrace    = 10 * time.Second
+
+	// P1 additions.
+	DefaultDatabases         = "toy=sqlite:../../infra/fixtures/toy.sqlite"
+	DefaultParserTimeout     = 5 * time.Second
+	DefaultMaxConcurrentRuns = 8
+	DefaultRateLimitBurst    = 5
+	DefaultRateLimitPerMin   = 20.0
+	DefaultMaxResultBytes    = 1 << 20
 )
 
 // Provider names the LLM backend. Defaulting to the fake keeps `go test`,
@@ -57,6 +65,10 @@ const (
 	// Mirror sql_plan.v1.
 	MaxRowLimitCeiling         = 10000
 	MaxStatementTimeoutCeiling = 2 * time.Minute
+	// Must equal MAX_RESULT_FRAME_CHARS in apps/web/src/lib/protocol.ts and
+	// executor.MaxResultBytesCeiling. A runtime permitted to emit a larger
+	// frame would produce one its own browser client rejects.
+	MaxResultBytesCeiling = 4 << 20
 )
 
 // Config is the fully validated runtime configuration. Every field is
@@ -82,6 +94,22 @@ type Config struct {
 	RowLimit         int
 	StatementTimeout time.Duration
 
+	// Databases is the slug=dialect:dsn registry the question endpoint
+	// resolves against. Empty configures nothing, and the runtime then serves
+	// no questions rather than guessing at a database.
+	Databases string
+	// ParserTimeout bounds the call to the retriever sidecar's /v1/parse,
+	// which sits on the hot path of every question.
+	ParserTimeout time.Duration
+	// MaxConcurrentRuns bounds in-flight agent loops, and so bounds concurrent
+	// provider connections.
+	MaxConcurrentRuns int
+	// RateLimitBurst and RateLimitPerMinute bound one client.
+	RateLimitBurst     int
+	RateLimitPerMinute float64
+	// MaxResultBytes bounds the streamed result frame.
+	MaxResultBytes int
+
 	ShutdownGrace time.Duration
 }
 
@@ -101,6 +129,7 @@ func Load() (Config, error) {
 		ProviderBaseURL: orDefault(os.Getenv("SEXTANT_PROVIDER_BASE_URL"), DefaultProviderBaseURL),
 		CheapModel:      orDefault(os.Getenv("SEXTANT_CHEAP_MODEL"), DefaultCheapModel),
 		StrongModel:     orDefault(os.Getenv("SEXTANT_STRONG_MODEL"), DefaultStrongModel),
+		Databases:       orDefault(os.Getenv("SEXTANT_DATABASES"), DefaultDatabases),
 	}
 
 	var err error
@@ -126,6 +155,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.ShutdownGrace, err = envDuration("SEXTANT_SHUTDOWN_GRACE", DefaultShutdownGrace); err != nil {
+		return Config{}, err
+	}
+	if cfg.ParserTimeout, err = envDuration("SEXTANT_PARSER_TIMEOUT", DefaultParserTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxConcurrentRuns, err = envInt("SEXTANT_MAX_CONCURRENT_RUNS", DefaultMaxConcurrentRuns); err != nil {
+		return Config{}, err
+	}
+	if cfg.RateLimitBurst, err = envInt("SEXTANT_RATE_LIMIT_BURST", DefaultRateLimitBurst); err != nil {
+		return Config{}, err
+	}
+	if cfg.RateLimitPerMinute, err = envFloat("SEXTANT_RATE_LIMIT_PER_MINUTE", DefaultRateLimitPerMin); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxResultBytes, err = envInt("SEXTANT_MAX_RESULT_BYTES", DefaultMaxResultBytes); err != nil {
 		return Config{}, err
 	}
 
@@ -196,6 +240,22 @@ func (c Config) validate() error {
 	}
 	if c.ShutdownGrace <= 0 {
 		return fmt.Errorf("SEXTANT_SHUTDOWN_GRACE: must be positive, got %s", c.ShutdownGrace)
+	}
+	if c.ParserTimeout <= 0 {
+		return fmt.Errorf("SEXTANT_PARSER_TIMEOUT: must be positive, got %s", c.ParserTimeout)
+	}
+	if c.MaxConcurrentRuns < 1 {
+		return fmt.Errorf("SEXTANT_MAX_CONCURRENT_RUNS: must be at least 1, got %d", c.MaxConcurrentRuns)
+	}
+	if c.RateLimitBurst < 1 {
+		return fmt.Errorf("SEXTANT_RATE_LIMIT_BURST: must be at least 1, got %d", c.RateLimitBurst)
+	}
+	if c.RateLimitPerMinute <= 0 {
+		return fmt.Errorf("SEXTANT_RATE_LIMIT_PER_MINUTE: must be positive, got %g", c.RateLimitPerMinute)
+	}
+	if c.MaxResultBytes < 1 || c.MaxResultBytes > MaxResultBytesCeiling {
+		return fmt.Errorf("SEXTANT_MAX_RESULT_BYTES: must be in [1,%d], got %d",
+			MaxResultBytesCeiling, c.MaxResultBytes)
 	}
 	return nil
 }

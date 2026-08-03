@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"runtime/debug"
 
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/agent"
 	"github.com/simenzzz/sextant/apps/runtime-go/internal/clock"
@@ -60,6 +61,27 @@ func (s *Server) streamRun(
 	done := make(chan agent.Result, 1)
 	go func() {
 		defer close(events)
+		// A panic here would otherwise kill the PROCESS. net/http recovers
+		// panics on the goroutine running a handler, but not on one the
+		// handler spawned — and the loop runs on a spawned goroutine because
+		// this one has to stay free to drain and write.
+		//
+		// This is not defensive padding. The loop is where the agent's own
+		// logic lives, and one question's bug taking down the server for every
+		// other client is a far worse failure than that question ending badly.
+		// The panic becomes a recorded error outcome, and the stack goes to the
+		// log where it can be read.
+		defer func() {
+			if r := recover(); r != nil {
+				s.deps.Logger.Error("agent run panicked",
+					"run_id", run.ID, "panic", r, "stack", string(debug.Stack()))
+				done <- agent.Result{
+					Outcome: agent.OutcomeError,
+					Ledger:  agent.NewLedger(run.ID).Document(),
+				}
+			}
+		}()
+
 		result, err := s.deps.Agent.Run(ctx, in, func(ev gen.TraceEventV1) {
 			select {
 			case <-ctx.Done():

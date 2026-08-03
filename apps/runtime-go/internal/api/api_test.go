@@ -35,9 +35,10 @@ type fakeRunner struct {
 	result agent.Result
 	err    error
 
-	mu    sync.Mutex
-	calls int
-	block chan struct{} // when non-nil, Run waits on it before returning
+	mu        sync.Mutex
+	calls     int
+	block     chan struct{} // when non-nil, Run waits on it before returning
+	panicWith string        // when non-empty, Run panics with it
 }
 
 func (f *fakeRunner) Run(ctx context.Context, _ agent.RunInput, emit agent.Emit) (agent.Result, error) {
@@ -45,6 +46,9 @@ func (f *fakeRunner) Run(ctx context.Context, _ agent.RunInput, emit agent.Emit)
 	f.calls++
 	f.mu.Unlock()
 
+	if f.panicWith != "" {
+		panic(f.panicWith)
+	}
 	for _, ev := range f.events {
 		emit(ev)
 	}
@@ -622,5 +626,50 @@ func TestNewRefusesAnIncompleteDependencySet(t *testing.T) {
 				t.Fatal("New() accepted an incomplete dependency set")
 			}
 		})
+	}
+}
+
+func TestStreamSurvivesAPanicInTheLoop(t *testing.T) {
+	// net/http recovers panics on the goroutine running a handler, but not on
+	// one the handler spawned — and the loop runs on a spawned goroutine
+	// because this one must stay free to drain and write. Without a recover
+	// there, one question's bug takes the whole server down for every other
+	// client. Verified against a real process before this test existed: it
+	// exited with status 2.
+	f := newFixture(t, func(_ *Deps, f *fixture) {
+		f.runner.panicWith = "the loop blew up"
+	})
+	runID := f.startRun(t)
+
+	rec := f.stream(t, runID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — the stream was already committed", rec.Code)
+	}
+
+	// The panic becomes a recorded error outcome rather than a dead process.
+	run, err := f.store.LoadRun(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("LoadRun() error = %v", err)
+	}
+	if run.Outcome != string(agent.OutcomeError) {
+		t.Errorf("outcome = %q, want %q", run.Outcome, agent.OutcomeError)
+	}
+	if run.FinishedAt == nil {
+		t.Error("a panicking run was never stamped finished")
+	}
+}
+
+func TestTheServerKeepsServingAfterARunPanics(t *testing.T) {
+	f := newFixture(t, func(_ *Deps, f *fixture) {
+		f.runner.panicWith = "boom"
+	})
+
+	first := f.startRun(t)
+	f.stream(t, first)
+
+	// The next question must still work. This is the property that matters:
+	// one client's bad run is not every client's outage.
+	if code := f.ask(t, validQuestion).Code; code != http.StatusCreated {
+		t.Errorf("a later question returned %d after an earlier run panicked", code)
 	}
 }

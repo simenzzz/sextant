@@ -5,5 +5,6 @@
   "statement_count": 0,
   "node_kinds": [],
   "tables": [],
+  "functions": [],
   "error": "could not parse input as a postgres statement"
 }

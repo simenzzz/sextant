@@ -3,7 +3,12 @@
   "ok": true,
   "dialect": "sqlite",
   "statement_count": 1,
-  "node_kinds": ["Select"],
-  "tables": ["orders"],
+  "node_kinds": [
+    "Select"
+  ],
+  "tables": [
+    "orders"
+  ],
+  "functions": [],
   "verdict": "accepted"
 }

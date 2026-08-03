@@ -3,6 +3,7 @@
   "ok": true,
   "dialect": "sqlite",
   "statement_count": 1,
-  "node_kinds": ["Select", "Table", "Column", "Limit"],
-  "tables": ["orders"]
+  "node_kinds": ["Select", "From", "Table", "Identifier", "Count", "Star", "Limit", "Literal"],
+  "tables": ["orders"],
+  "functions": ["count"]
 }

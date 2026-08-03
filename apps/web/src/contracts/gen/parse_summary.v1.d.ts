@@ -27,11 +27,17 @@ export interface ParseSummaryV1 {
    */
   node_kinds: string[];
   /**
-   * Every table the statement references, as resolved from the AST. The guard proves this is a subset of the schema subset handed to generation. Empty when ok is false.
+   * Every table the statement references, as resolved from the AST, lowercased and with common-table-expression aliases removed — a CTE name is not a table and a guard checking it against the schema would reject a legitimate query. Empty when ok is false.
    *
    * @maxItems 64
    */
   tables: string[];
+  /**
+   * Every function the statement calls, lowercased. Needed because node_kinds cannot tell these apart: a parser renders a function it knows as its own node type (COUNT becomes Count) but every function it does not know as one shared node type, so pg_read_file, readfile and lo_import all arrive as the same kind. Without the names, a node-kind allowlist either bans all unknown functions or admits the file-reading ones. Empty when ok is false.
+   *
+   * @maxItems 128
+   */
+  functions: string[];
   /**
    * Whether the input carried a LIMIT of its own, before any rewrite
    */

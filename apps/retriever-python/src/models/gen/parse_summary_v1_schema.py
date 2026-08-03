@@ -26,6 +26,10 @@ class Table(RootModel[constr(min_length=1, max_length=128)]):
     root: constr(min_length=1, max_length=128)
 
 
+class Function(RootModel[constr(min_length=1, max_length=128)]):
+    root: constr(min_length=1, max_length=128)
+
+
 class ParseSummaryV1(BaseModel):
     """
     Everything a SQL parser can say about one candidate statement, with no policy applied. The retriever sidecar produces this with sqlglot; the Go guard reads it and decides. Splitting it this way keeps the parsing where the good parser is and the rejection decision where the runtime is — a summary is evidence, never a verdict. Absent optional fields mean the parser could not establish that fact, so a guard reading this must fail closed rather than assume a default.
@@ -56,8 +60,13 @@ class ParseSummaryV1(BaseModel):
     )
     tables: list[Table] = Field(
         ...,
-        description='Every table the statement references, as resolved from the AST. The guard proves this is a subset of the schema subset handed to generation. Empty when ok is false.',
+        description='Every table the statement references, as resolved from the AST, lowercased and with common-table-expression aliases removed — a CTE name is not a table and a guard checking it against the schema would reject a legitimate query. Empty when ok is false.',
         max_length=64,
+    )
+    functions: list[Function] = Field(
+        ...,
+        description='Every function the statement calls, lowercased. Needed because node_kinds cannot tell these apart: a parser renders a function it knows as its own node type (COUNT becomes Count) but every function it does not know as one shared node type, so pg_read_file, readfile and lo_import all arrive as the same kind. Without the names, a node-kind allowlist either bans all unknown functions or admits the file-reading ones. Empty when ok is false.',
+        max_length=128,
     )
     has_limit: bool | None = Field(
         None, description='Whether the input carried a LIMIT of its own, before any rewrite'

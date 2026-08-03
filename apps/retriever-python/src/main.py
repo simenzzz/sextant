@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.config import Settings, load_settings
+from src.routes.parse import router as parse_router
 
 SERVICE_NAME = "retriever-python"
 SERVICE_VERSION = "0.1.0"
@@ -99,6 +100,12 @@ def create_app(
             allow_headers=["Content-Type"],
             max_age=600,
         )
+
+    # Mounted inside the CORS wrapper above, so a new route cannot be added
+    # without the origin allowlist applying to it. /v1/parse is called by the
+    # Go runtime over the private compose network rather than by a browser,
+    # but that is a deployment fact and not something to rely on.
+    app.include_router(parse_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

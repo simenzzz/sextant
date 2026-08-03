@@ -3,7 +3,14 @@
   "ok": true,
   "dialect": "sqlite",
   "statement_count": 2,
-  "node_kinds": ["Select", "Table", "Delete"],
-  "tables": ["users"],
+  "node_kinds": [
+    "Select",
+    "Table",
+    "Delete"
+  ],
+  "tables": [
+    "users"
+  ],
+  "functions": [],
   "has_limit": false
 }

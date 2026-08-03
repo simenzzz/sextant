@@ -3,6 +3,12 @@
   "ok": true,
   "dialect": "sqlite",
   "statement_count": 1,
-  "node_kinds": ["Select", "DROP TABLE users"],
-  "tables": ["orders"]
+  "node_kinds": [
+    "Select",
+    "DROP TABLE users"
+  ],
+  "tables": [
+    "orders"
+  ],
+  "functions": []
 }

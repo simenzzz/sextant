@@ -19,6 +19,14 @@ type ParseSummaryV1 struct {
 	// onward to a browser.
 	Error *string `json:"error,omitempty,omitzero" yaml:"error,omitempty" mapstructure:"error,omitempty"`
 
+	// Every function the statement calls, lowercased. Needed because node_kinds
+	// cannot tell these apart: a parser renders a function it knows as its own node
+	// type (COUNT becomes Count) but every function it does not know as one shared
+	// node type, so pg_read_file, readfile and lo_import all arrive as the same kind.
+	// Without the names, a node-kind allowlist either bans all unknown functions or
+	// admits the file-reading ones. Empty when ok is false.
+	Functions []string `json:"functions" yaml:"functions" mapstructure:"functions"`
+
 	// Whether the input carried a LIMIT of its own, before any rewrite
 	HasLimit *bool `json:"has_limit,omitempty,omitzero" yaml:"has_limit,omitempty" mapstructure:"has_limit,omitempty"`
 
@@ -58,9 +66,10 @@ type ParseSummaryV1 struct {
 	// Zero when ok is false.
 	StatementCount int `json:"statement_count" yaml:"statement_count" mapstructure:"statement_count"`
 
-	// Every table the statement references, as resolved from the AST. The guard
-	// proves this is a subset of the schema subset handed to generation. Empty when
-	// ok is false.
+	// Every table the statement references, as resolved from the AST, lowercased and
+	// with common-table-expression aliases removed — a CTE name is not a table and a
+	// guard checking it against the schema would reject a legitimate query. Empty
+	// when ok is false.
 	Tables []string `json:"tables" yaml:"tables" mapstructure:"tables"`
 }
 

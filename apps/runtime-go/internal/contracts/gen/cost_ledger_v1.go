@@ -31,6 +31,18 @@ type Entry struct {
 	// True when the semantic cache served this step and no provider call was made
 	CacheHit bool `json:"cache_hit,omitempty,omitzero" yaml:"cache_hit,omitempty" mapstructure:"cache_hit,omitempty"`
 
+	// Input tokens served from the provider's prompt cache, billed at roughly a tenth
+	// of the standard input rate. Reported separately from tokens_in because a single
+	// combined figure makes the dollar amount uncheckable: three classes of input
+	// token bill at three different rates, and no reader could recover which was
+	// which.
+	CacheReadTokens int `json:"cache_read_tokens,omitempty,omitzero" yaml:"cache_read_tokens,omitempty" mapstructure:"cache_read_tokens,omitempty"`
+
+	// Input tokens written into the provider's prompt cache, billed at a premium over
+	// the standard input rate. A cache write is an investment that only pays off if a
+	// later request reads it, so it is worth being able to see one that never did.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty,omitzero" yaml:"cache_write_tokens,omitempty" mapstructure:"cache_write_tokens,omitempty"`
+
 	// False when the provider closed the stream without reporting usage. The runtime
 	// never estimates token counts, so such a step has an unknown cost, not a zero
 	// one — tokens_in, tokens_out and usd are then all 0 and carry no meaning. A
@@ -65,6 +77,13 @@ type Entry struct {
 type Totals struct {
 	// CacheHits corresponds to the JSON schema field "cache_hits".
 	CacheHits int `json:"cache_hits,omitempty,omitzero" yaml:"cache_hits,omitempty" mapstructure:"cache_hits,omitempty"`
+
+	// Total input tokens served from the prompt cache across the run. The
+	// dollars-saved figure PLAN.md section 5.6 asks for is derived from this.
+	CacheReadTokens int `json:"cache_read_tokens,omitempty,omitzero" yaml:"cache_read_tokens,omitempty" mapstructure:"cache_read_tokens,omitempty"`
+
+	// Total input tokens written into the prompt cache across the run
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty,omitzero" yaml:"cache_write_tokens,omitempty" mapstructure:"cache_write_tokens,omitempty"`
 
 	// Ms corresponds to the JSON schema field "ms".
 	Ms int `json:"ms" yaml:"ms" mapstructure:"ms"`

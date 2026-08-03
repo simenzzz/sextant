@@ -42,8 +42,16 @@ Rules:
 // The ordering is not arbitrary. The system prompt and the schema card are
 // identical for every question against the same database, and the question is
 // not — so the stable part goes first and the volatile part last. That is the
-// prefix a prompt cache can reuse, and getting the order wrong makes every
-// question a cache miss.
+// prefix the provider's prompt cache reuses (the adapter marks it), and
+// getting the order wrong would make every question a cache miss.
+//
+// It is worth knowing that this is INERT on a small schema, and silently so.
+// Each model has a minimum cacheable prefix and Haiku 4.5's is 4096 tokens —
+// the highest of any current model, and not monotonic across generations
+// (Opus 5's is 512). The toy fixture's system prompt measures about 450
+// tokens, so nothing caches and the provider reports a zero rather than an
+// error. It begins paying off when the schema grows: PLAN.md section 11.1's
+// corpus at P5, or BIRD's larger databases.
 func BuildRequest(model string, sch schema.Schema, question, evidence string) provider.Request {
 	var system strings.Builder
 	system.WriteString(systemPrompt)

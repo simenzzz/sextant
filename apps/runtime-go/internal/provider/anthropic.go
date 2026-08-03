@@ -198,12 +198,19 @@ func (p *AnthropicProvider) send(ctx context.Context, out chan<- StreamEvent, ev
 // nothing" from "nobody told us what this step cost", and cost_ledger.v1's
 // cost_known flag is how it says so.
 func usageOf(m anthropic.Message) *Usage {
-	in := m.Usage.InputTokens + m.Usage.CacheReadInputTokens + m.Usage.CacheCreationInputTokens
-	out := m.Usage.OutputTokens
-	if in == 0 && out == 0 {
+	u := Usage{
+		TokensIn:         int(m.Usage.InputTokens),
+		TokensOut:        int(m.Usage.OutputTokens),
+		CacheReadTokens:  int(m.Usage.CacheReadInputTokens),
+		CacheWriteTokens: int(m.Usage.CacheCreationInputTokens),
+	}
+	// Kept apart rather than summed. The three classes bill at three different
+	// rates, so one combined figure would overstate reads, understate writes,
+	// and leave the dollar amount uncheckable by anyone reading the ledger.
+	if u.TotalIn() == 0 && u.TokensOut == 0 {
 		return nil
 	}
-	return &Usage{TokensIn: int(in), TokensOut: int(out)}
+	return &u
 }
 
 // buildParams translates a Request into SDK parameters.
@@ -243,7 +250,26 @@ func buildParams(req Request) (anthropic.MessageNewParams, error) {
 		Messages:  messages,
 	}
 	if req.SystemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{{Text: req.SystemPrompt}}
+		// The system prompt carries the schema card and is byte-identical for
+		// every question against one database, so it is exactly the prefix a
+		// prompt cache exists for. BuildRequest already orders the request so
+		// the volatile part comes after it.
+		//
+		// INERT ON A SMALL SCHEMA, silently. Each model has a minimum
+		// cacheable prefix and Haiku 4.5's is 4096 tokens — the highest of any
+		// current model, and not monotonic across generations. The toy
+		// fixture's card is around 450 tokens, so nothing is cached and the
+		// provider reports cache_creation_input_tokens: 0 with no error. It
+		// starts paying off when the schema grows: PLAN.md section 11.1's
+		// corpus at P5, or BIRD's larger databases.
+		//
+		// Marked anyway because the marker costs nothing when it does not
+		// apply, and because the ledger now prices cache tokens correctly — so
+		// the day it does start caching, the numbers are already right.
+		params.System = []anthropic.TextBlockParam{{
+			Text:         req.SystemPrompt,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}}
 	}
 	// Temperature is sent only when asked for, and only to a model that takes
 	// it. Claude Sonnet 5 and the Opus 4.7+ family REJECT a non-default

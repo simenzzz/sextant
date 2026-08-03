@@ -323,6 +323,29 @@ retrofitting accounting is how you end up without it.
 Price table lives in config, versioned, with the date it was last checked.
 Never hardcode prices inline.
 
+### 5.5.1 Prompt caching — adopted at P1 (2026-08-03)
+
+Distinct from the semantic cache below. This is the *provider's* prefix cache:
+the system prompt carries the schema card, is byte-identical for every question
+against one database, and is therefore exactly the prefix `cache_control`
+exists for. `BuildRequest` orders the request so the volatile question comes
+last, and the adapter marks the system block.
+
+The accounting consequence is the reason it is written down. Input arrives in
+**three classes billed at three different rates** — standard, cache read at
+about 0.1x, cache write at about 1.25x — so `provider.Usage` and
+`cost_ledger.v1` keep them apart. Summing them into one `tokens_in` would
+overstate reads tenfold, understate writes, and leave the dollar figure
+uncheckable by anyone reading the ledger, which is the opposite of what this
+project is for.
+
+**It does nothing yet, and that is expected.** Each model has a minimum
+cacheable prefix; Haiku 4.5's is 4096 tokens, the highest of any current model.
+The toy fixture's prompt measures about 450, so nothing is cached and the API
+reports a zero rather than an error. It becomes live when the corpus grows at
+P5. The machinery is in place now so the numbers are already right on the day
+it does — retrofitting accounting is how you end up without it (5.5).
+
 ### 5.6 Semantic cache
 
 Question embedding → nearest cached `(question, schema_fingerprint, SQL)` entry

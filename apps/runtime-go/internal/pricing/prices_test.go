@@ -11,34 +11,33 @@ func TestCost(t *testing.T) {
 	tests := []struct {
 		name      string
 		model     string
-		tokensIn  int
-		tokensOut int
+		usage     Usage
 		wantUSD   float64
 		wantKnown bool
 	}{
 		{
 			name:  "haiku at a million in and out",
-			model: "claude-haiku-4-5", tokensIn: 1_000_000, tokensOut: 1_000_000,
+			model: "claude-haiku-4-5", usage: Usage{TokensIn: 1_000_000, TokensOut: 1_000_000},
 			wantUSD: 6.00, wantKnown: true,
 		},
 		{
 			name:  "haiku at a realistic step",
-			model: "claude-haiku-4-5", tokensIn: 3_000, tokensOut: 150,
+			model: "claude-haiku-4-5", usage: Usage{TokensIn: 3_000, TokensOut: 150},
 			wantUSD: 0.003 + 0.00075, wantKnown: true,
 		},
 		{
 			name:  "the dated snapshot prices the same as the alias",
-			model: "claude-haiku-4-5-20251001", tokensIn: 1_000_000, tokensOut: 1_000_000,
+			model: "claude-haiku-4-5-20251001", usage: Usage{TokensIn: 1_000_000, TokensOut: 1_000_000},
 			wantUSD: 6.00, wantKnown: true,
 		},
 		{
 			name:  "sonnet 5 at its standard rate",
-			model: "claude-sonnet-5", tokensIn: 1_000_000, tokensOut: 1_000_000,
+			model: "claude-sonnet-5", usage: Usage{TokensIn: 1_000_000, TokensOut: 1_000_000},
 			wantUSD: 18.00, wantKnown: true,
 		},
 		{
 			name:  "a free step still has a known price",
-			model: "claude-haiku-4-5", tokensIn: 0, tokensOut: 0,
+			model: "claude-haiku-4-5", usage: Usage{TokensIn: 0, TokensOut: 0},
 			wantUSD: 0, wantKnown: true,
 		},
 		{
@@ -46,12 +45,12 @@ func TestCost(t *testing.T) {
 			// flag exists for this: a model the table has never heard of is far
 			// more likely to be an expensive new one than a free one.
 			name:  "an unpriced model is unknown, not free",
-			model: "some-model-shipped-after-this-table", tokensIn: 5_000, tokensOut: 500,
+			model: "some-model-shipped-after-this-table", usage: Usage{TokensIn: 5_000, TokensOut: 500},
 			wantUSD: 0, wantKnown: false,
 		},
 		{
 			name:  "an empty model id is unknown",
-			model: "", tokensIn: 1, tokensOut: 1,
+			model: "", usage: Usage{TokensIn: 1, TokensOut: 1},
 			wantUSD: 0, wantKnown: false,
 		},
 		{
@@ -59,14 +58,14 @@ func TestCost(t *testing.T) {
 			// negative charge would credit the run's budget and let it run past
 			// its cap.
 			name:  "negative counts are floored rather than credited",
-			model: "claude-haiku-4-5", tokensIn: -1_000_000, tokensOut: 1_000_000,
+			model: "claude-haiku-4-5", usage: Usage{TokensIn: -1_000_000, TokensOut: 1_000_000},
 			wantUSD: 5.00, wantKnown: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usd, known := Cost(tt.model, tt.tokensIn, tt.tokensOut)
+			usd, known := Cost(tt.model, tt.usage)
 
 			if known != tt.wantKnown {
 				t.Fatalf("Cost(%q) known = %v, want %v", tt.model, known, tt.wantKnown)
@@ -75,8 +74,8 @@ func TestCost(t *testing.T) {
 			// dollar figures, and exact equality on binary floats would make
 			// the test about IEEE 754 rather than about the price table.
 			if math.Abs(usd-tt.wantUSD) > 1e-9 {
-				t.Errorf("Cost(%q, %d, %d) = %.10f, want %.10f",
-					tt.model, tt.tokensIn, tt.tokensOut, usd, tt.wantUSD)
+				t.Errorf("Cost(%q, %+v) = %.10f, want %.10f",
+					tt.model, tt.usage, usd, tt.wantUSD)
 			}
 		})
 	}
@@ -84,7 +83,8 @@ func TestCost(t *testing.T) {
 
 func TestCostIsNeverNegative(t *testing.T) {
 	for _, model := range Models() {
-		usd, known := Cost(model, -5, -5)
+		usd, known := Cost(model, Usage{TokensIn: -5, TokensOut: -5,
+			CacheReadTokens: -5, CacheWriteTokens: -5})
 		if !known {
 			t.Errorf("Cost(%q) reported unknown for a model in the table", model)
 		}
@@ -133,5 +133,55 @@ func TestCheckedOnIsAParseableDate(t *testing.T) {
 	// every ledger the runtime emits.
 	if _, err := CheckedOnDate(); err != nil {
 		t.Fatalf("CheckedOn = %q is not a valid ISO 8601 date: %v", CheckedOn, err)
+	}
+}
+
+func TestCostPricesTheThreeInputClassesAtTheirOwnRates(t *testing.T) {
+	// The reason provider.Usage keeps them apart. Summing them into one figure
+	// overstates reads by 10x and understates writes by 25%, and leaves the
+	// dollar amount uncheckable by anyone reading the ledger.
+	const million = 1_000_000
+
+	standard, _ := Cost("claude-haiku-4-5", Usage{TokensIn: million})
+	read, _ := Cost("claude-haiku-4-5", Usage{CacheReadTokens: million})
+	write, _ := Cost("claude-haiku-4-5", Usage{CacheWriteTokens: million})
+
+	if math.Abs(standard-1.00) > 1e-9 {
+		t.Errorf("standard input = %v, want 1.00", standard)
+	}
+	if math.Abs(read-0.10) > 1e-9 {
+		t.Errorf("cache read = %v, want 0.10 (a tenth of standard)", read)
+	}
+	if math.Abs(write-1.25) > 1e-9 {
+		t.Errorf("cache write = %v, want 1.25 (a premium over standard)", write)
+	}
+	// And the ordering that makes caching worth doing at all.
+	if !(read < standard && standard < write) {
+		t.Errorf("rates are not read < standard < write: %v, %v, %v", read, standard, write)
+	}
+}
+
+func TestCostSumsTheClassesRatherThanPickingOne(t *testing.T) {
+	usd, known := Cost("claude-haiku-4-5", Usage{
+		TokensIn: 1000, CacheReadTokens: 4000, CacheWriteTokens: 2000, TokensOut: 500,
+	})
+	if !known {
+		t.Fatal("Cost() reported unknown for a priced model")
+	}
+	// 1000*1.00 + 4000*0.10 + 2000*1.25 + 500*5.00 per million.
+	want := (1000*1.00 + 4000*0.10 + 2000*1.25 + 500*5.00) / 1_000_000
+	if math.Abs(usd-want) > 1e-12 {
+		t.Errorf("Cost() = %.12f, want %.12f", usd, want)
+	}
+}
+
+func TestAMostlyCachedStepCostsFarLessThanAnUncachedOne(t *testing.T) {
+	// The property the whole feature exists for, stated as a test rather than
+	// assumed from the multipliers.
+	uncached, _ := Cost("claude-haiku-4-5", Usage{TokensIn: 10_000, TokensOut: 100})
+	cached, _ := Cost("claude-haiku-4-5", Usage{CacheReadTokens: 10_000, TokensOut: 100})
+
+	if cached >= uncached {
+		t.Errorf("a cache-read step (%v) did not cost less than an uncached one (%v)", cached, uncached)
 	}
 }

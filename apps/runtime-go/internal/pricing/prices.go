@@ -43,6 +43,33 @@ type Rate struct {
 // usdPerMTok is the divisor turning a per-million rate into a per-token one.
 const usdPerMTok = 1_000_000
 
+// Prompt-cache multipliers, applied to a model's standard input rate.
+//
+// Anthropic prices cache reads at about a tenth of standard input and cache
+// writes at a premium over it. These are ratios rather than separate per-model
+// rates because that is how the pricing is published: one input price per
+// model, with the cache classes derived from it.
+//
+// CacheWriteMultiplier is the FIVE-MINUTE figure. A one-hour TTL costs 2x
+// instead, so anything that starts requesting `ttl: "1h"` has to bring its own
+// multiplier rather than reusing this one.
+const (
+	CacheReadMultiplier  = 0.1
+	CacheWriteMultiplier = 1.25
+)
+
+// Usage is the token breakdown a step reported.
+//
+// Declared here rather than reusing provider.Usage so pricing does not depend
+// on the provider package — the eval harness at P2 prices replayed runs with no
+// provider involved at all.
+type Usage struct {
+	TokensIn         int
+	TokensOut        int
+	CacheReadTokens  int
+	CacheWriteTokens int
+}
+
 // table is the price table.
 //
 // Sonnet 5 is listed at its standard rate although an introductory rate of
@@ -87,7 +114,7 @@ var table = map[string]Rate{
 // unknown cost — cost_ledger.v1's cost_known flag exists for exactly this —
 // rather than treating the zero as free. A model the table has never heard of
 // is far more likely to be an expensive new one than a free one.
-func Cost(model string, tokensIn, tokensOut int) (usd float64, known bool) {
+func Cost(model string, u Usage) (usd float64, known bool) {
 	rate, ok := table[model]
 	if !ok {
 		return 0, false
@@ -95,15 +122,12 @@ func Cost(model string, tokensIn, tokensOut int) (usd float64, known bool) {
 	// Negative counts cannot come from a conforming provider and must not
 	// produce a negative charge, which would credit a run's budget and let it
 	// run past its cap.
-	if tokensIn < 0 {
-		tokensIn = 0
-	}
-	if tokensOut < 0 {
-		tokensOut = 0
-	}
-	in := float64(tokensIn) * rate.InputUSDPerMTok / usdPerMTok
-	out := float64(tokensOut) * rate.OutputUSDPerMTok / usdPerMTok
-	return in + out, true
+	in := float64(max(u.TokensIn, 0)) * rate.InputUSDPerMTok
+	read := float64(max(u.CacheReadTokens, 0)) * rate.InputUSDPerMTok * CacheReadMultiplier
+	write := float64(max(u.CacheWriteTokens, 0)) * rate.InputUSDPerMTok * CacheWriteMultiplier
+	out := float64(max(u.TokensOut, 0)) * rate.OutputUSDPerMTok
+
+	return (in + read + write + out) / usdPerMTok, true
 }
 
 // Lookup returns the rate for a model.

@@ -48,7 +48,15 @@ func (l *Ledger) Record(step int, model string, usage *provider.Usage, ms int, r
 
 	entry.TokensIn = usage.TokensIn
 	entry.TokensOut = usage.TokensOut
-	usd, known := pricing.Cost(model, usage.TokensIn, usage.TokensOut)
+	entry.CacheReadTokens = usage.CacheReadTokens
+	entry.CacheWriteTokens = usage.CacheWriteTokens
+
+	usd, known := pricing.Cost(model, pricing.Usage{
+		TokensIn:         usage.TokensIn,
+		TokensOut:        usage.TokensOut,
+		CacheReadTokens:  usage.CacheReadTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
+	})
 	entry.Usd = usd
 	entry.CostKnown = known
 
@@ -90,6 +98,8 @@ func (l *Ledger) Document() gen.CostLedgerV1 {
 	for _, e := range l.entries {
 		totals.TokensIn += e.TokensIn
 		totals.TokensOut += e.TokensOut
+		totals.CacheReadTokens += e.CacheReadTokens
+		totals.CacheWriteTokens += e.CacheWriteTokens
 		totals.Usd += e.Usd
 		totals.Ms += e.Ms
 		if e.CacheHit {

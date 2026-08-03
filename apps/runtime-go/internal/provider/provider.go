@@ -46,9 +46,27 @@ type Request struct {
 
 // Usage is what the provider reports it charged for. These are the numbers the
 // cost ledger records; the runtime never estimates token counts.
+//
+// Input arrives in three classes because they are billed at three different
+// rates, and summing them would make the ledger wrong rather than merely
+// coarse: a cache read costs about a tenth of a standard input token and a
+// cache write about a quarter more. One combined figure overstates reads and
+// understates writes, and no consumer could recover the truth from it.
 type Usage struct {
-	TokensIn  int
+	// TokensIn is input processed at the standard rate — neither read from
+	// nor written to the provider's prompt cache.
+	TokensIn int
+	// TokensOut is generated output.
 	TokensOut int
+	// CacheReadTokens were served from the provider's prompt cache.
+	CacheReadTokens int
+	// CacheWriteTokens were written into it.
+	CacheWriteTokens int
+}
+
+// TotalIn is every input token, regardless of how it was billed.
+func (u Usage) TotalIn() int {
+	return u.TokensIn + u.CacheReadTokens + u.CacheWriteTokens
 }
 
 // StreamEvent is one item on a provider stream: a token fragment, a terminal

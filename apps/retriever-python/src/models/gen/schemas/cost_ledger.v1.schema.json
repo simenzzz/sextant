@@ -58,6 +58,18 @@
           "type": "integer",
           "minimum": 0
         },
+        "cache_read_tokens": {
+          "description": "Input tokens served from the provider's prompt cache, billed at roughly a tenth of the standard input rate. Reported separately from tokens_in because a single combined figure makes the dollar amount uncheckable: three classes of input token bill at three different rates, and no reader could recover which was which.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "cache_write_tokens": {
+          "description": "Input tokens written into the provider's prompt cache, billed at a premium over the standard input rate. A cache write is an investment that only pays off if a later request reads it, so it is worth being able to see one that never did.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
         "usd": {
           "description": "Dollars for this step, computed from the versioned price table",
           "type": "number",
@@ -98,6 +110,18 @@
       "properties": {
         "tokens_in": { "type": "integer", "minimum": 0 },
         "tokens_out": { "type": "integer", "minimum": 0 },
+        "cache_read_tokens": {
+          "description": "Total input tokens served from the prompt cache across the run. The dollars-saved figure PLAN.md section 5.6 asks for is derived from this.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "cache_write_tokens": {
+          "description": "Total input tokens written into the prompt cache across the run",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
         "usd": {
           "description": "Sum of entry dollars. The per-question budget cap is enforced against this value as it grows, not after the fact.",
           "type": "number",

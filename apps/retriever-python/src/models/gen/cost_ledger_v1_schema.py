@@ -21,6 +21,14 @@ class Entry(BaseModel):
         ..., description='Input tokens as reported by the provider, not estimated'
     )
     tokens_out: conint(ge=0) = Field(..., description='Output tokens as reported by the provider')
+    cache_read_tokens: conint(ge=0) | None = Field(
+        0,
+        description="Input tokens served from the provider's prompt cache, billed at roughly a tenth of the standard input rate. Reported separately from tokens_in because a single combined figure makes the dollar amount uncheckable: three classes of input token bill at three different rates, and no reader could recover which was which.",
+    )
+    cache_write_tokens: conint(ge=0) | None = Field(
+        0,
+        description="Input tokens written into the provider's prompt cache, billed at a premium over the standard input rate. A cache write is an investment that only pays off if a later request reads it, so it is worth being able to see one that never did.",
+    )
     usd: confloat(ge=0.0) = Field(
         ..., description='Dollars for this step, computed from the versioned price table'
     )
@@ -48,6 +56,13 @@ class Totals(BaseModel):
     )
     tokens_in: conint(ge=0)
     tokens_out: conint(ge=0)
+    cache_read_tokens: conint(ge=0) | None = Field(
+        0,
+        description='Total input tokens served from the prompt cache across the run. The dollars-saved figure PLAN.md section 5.6 asks for is derived from this.',
+    )
+    cache_write_tokens: conint(ge=0) | None = Field(
+        0, description='Total input tokens written into the prompt cache across the run'
+    )
     usd: confloat(ge=0.0) = Field(
         ...,
         description='Sum of entry dollars. The per-question budget cap is enforced against this value as it grows, not after the fact.',

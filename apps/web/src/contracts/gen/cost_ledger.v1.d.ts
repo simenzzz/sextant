@@ -42,6 +42,14 @@ export interface Entry {
    */
   tokens_out: number;
   /**
+   * Input tokens served from the provider's prompt cache, billed at roughly a tenth of the standard input rate. Reported separately from tokens_in because a single combined figure makes the dollar amount uncheckable: three classes of input token bill at three different rates, and no reader could recover which was which.
+   */
+  cache_read_tokens?: number;
+  /**
+   * Input tokens written into the provider's prompt cache, billed at a premium over the standard input rate. A cache write is an investment that only pays off if a later request reads it, so it is worth being able to see one that never did.
+   */
+  cache_write_tokens?: number;
+  /**
    * Dollars for this step, computed from the versioned price table
    */
   usd: number;
@@ -69,6 +77,14 @@ export interface Entry {
 export interface Totals {
   tokens_in: number;
   tokens_out: number;
+  /**
+   * Total input tokens served from the prompt cache across the run. The dollars-saved figure PLAN.md section 5.6 asks for is derived from this.
+   */
+  cache_read_tokens?: number;
+  /**
+   * Total input tokens written into the prompt cache across the run
+   */
+  cache_write_tokens?: number;
   /**
    * Sum of entry dollars. The per-question budget cap is enforced against this value as it grows, not after the fact.
    */

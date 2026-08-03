@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // discardLogger keeps the upstream detail out of the test output while still
@@ -345,4 +347,92 @@ func TestClassifyKeepsCancellationDistinguishable(t *testing.T) {
 			t.Errorf("classify(%v) = %v, want the cancellation preserved", err, got)
 		}
 	}
+}
+
+func TestStreamReportsTheThreeInputClassesSeparately(t *testing.T) {
+	// The three bill at three different rates, so summing them would overstate
+	// reads tenfold and understate writes — and leave the ledger's dollar
+	// figure uncheckable by anyone reading it.
+	const cachedStream = `event: message_start
+data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":120,"output_tokens":1,"cache_read_input_tokens":4000,"cache_creation_input_tokens":900}}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":42}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	p := newTestProvider(t, sseServer(t, http.StatusOK, cachedStream))
+	ch, err := p.Stream(context.Background(), Request{
+		Model: "claude-haiku-4-5", MaxTokens: 64,
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+
+	_, usage, _ := collect(t, ch)
+	if usage == nil {
+		t.Fatal("no Usage event")
+	}
+	if usage.TokensIn != 120 {
+		t.Errorf("TokensIn = %d, want 120 (standard-rate input only)", usage.TokensIn)
+	}
+	if usage.CacheReadTokens != 4000 {
+		t.Errorf("CacheReadTokens = %d, want 4000", usage.CacheReadTokens)
+	}
+	if usage.CacheWriteTokens != 900 {
+		t.Errorf("CacheWriteTokens = %d, want 900", usage.CacheWriteTokens)
+	}
+	if got := usage.TotalIn(); got != 5020 {
+		t.Errorf("TotalIn() = %d, want 5020", got)
+	}
+}
+
+func TestBuildParamsMarksTheSystemPromptCacheable(t *testing.T) {
+	// The system prompt carries the schema card and is byte-identical for every
+	// question against one database — exactly the prefix a prompt cache is for.
+	//
+	// Note this is INERT on a small schema: Haiku 4.5's minimum cacheable
+	// prefix is 4096 tokens and the toy fixture's card is around 450, so
+	// nothing is cached and the provider says so with a zero rather than an
+	// error. The marker costs nothing meanwhile and the ledger already prices
+	// cache tokens correctly, so the numbers are right the day it does apply.
+	params, err := buildParams(Request{
+		Model: "claude-haiku-4-5", MaxTokens: 64,
+		SystemPrompt: "you write SQL",
+		Messages:     []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("buildParams() error = %v", err)
+	}
+	if len(params.System) != 1 {
+		t.Fatalf("System = %+v, want one block", params.System)
+	}
+	if params.System[0].CacheControl.Type == "" {
+		t.Error("the system block carries no cache_control; the schema card would be " +
+			"re-billed at the standard rate on every question once it is large enough to cache")
+	}
+}
+
+func TestUsageIsNilOnlyWhenNothingWasReported(t *testing.T) {
+	// A cache-only step still spent money. Treating it as "nobody told us"
+	// would record a real charge as unknown.
+	if usageOf(anthropicMessageWith(0, 0, 0, 0)) != nil {
+		t.Error("usageOf() returned a Usage when the provider reported nothing")
+	}
+	if usageOf(anthropicMessageWith(0, 0, 4000, 0)) == nil {
+		t.Error("usageOf() returned nil for a step that read 4000 cached tokens")
+	}
+}
+
+// anthropicMessageWith builds a Message carrying just the usage counts.
+func anthropicMessageWith(in, out, cacheRead, cacheWrite int64) anthropic.Message {
+	var m anthropic.Message
+	m.Usage.InputTokens = in
+	m.Usage.OutputTokens = out
+	m.Usage.CacheReadInputTokens = cacheRead
+	m.Usage.CacheCreationInputTokens = cacheWrite
+	return m
 }

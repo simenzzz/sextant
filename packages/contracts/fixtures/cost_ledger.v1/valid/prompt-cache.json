@@ -1,0 +1,26 @@
+{
+  "schema": "cost_ledger.v1",
+  "run_id": "r_01hq8w2c9m",
+  "price_table_date": "2026-08-03",
+  "entries": [
+    {
+      "step": 2,
+      "model": "claude-haiku-4-5",
+      "tokens_in": 120,
+      "tokens_out": 42,
+      "cache_read_tokens": 4000,
+      "cache_write_tokens": 900,
+      "usd": 0.00174,
+      "ms": 850
+    }
+  ],
+  "totals": {
+    "tokens_in": 120,
+    "tokens_out": 42,
+    "cache_read_tokens": 4000,
+    "cache_write_tokens": 900,
+    "usd": 0.00174,
+    "ms": 850,
+    "provider_calls": 1
+  }
+}

@@ -26,6 +26,8 @@ export function CostLedgerPanel({ ledger, runningUSD }: CostLedgerPanelProps) {
 
   const { totals, entries } = ledger
   const unknown = totals.steps_cost_unknown ?? 0
+  const cacheRead = totals.cache_read_tokens ?? 0
+  const cacheWrite = totals.cache_write_tokens ?? 0
 
   return (
     <section aria-label="Cost">
@@ -45,6 +47,14 @@ export function CostLedgerPanel({ ledger, runningUSD }: CostLedgerPanelProps) {
         {totals.provider_calls ?? 0} provider call{(totals.provider_calls ?? 0) === 1 ? '' : 's'}
         {(totals.cache_hits ?? 0) > 0 ? <> · {totals.cache_hits} cache hits</> : null}
       </p>
+      {cacheRead > 0 || cacheWrite > 0 ? (
+        // Shown only when caching actually happened. The prompt cache has a
+        // per-model minimum prefix — 4096 tokens on Haiku 4.5 — so on a small
+        // schema these stay zero and the line would be noise.
+        <p>
+          prompt cache: {cacheRead} read at a tenth rate, {cacheWrite} written at a premium
+        </p>
+      ) : null}
 
       {entries.length > 0 && (
         <table>

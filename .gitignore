@@ -47,6 +47,11 @@ htmlcov/
 # Eval *results* ARE committed (PLAN.md 6.5) — the run history is part of the
 # story. Only the ignore-by-default trap is guarded against here.
 
+# --- Claude Code -----------------------------------------------------------
+# .claude/CLAUDE.md is the project's instructions and IS committed. The local
+# settings file holds per-machine permission grants and is not shared.
+.claude/settings.local.json
+
 # --- Editors / OS ----------------------------------------------------------
 .DS_Store
 .idea/

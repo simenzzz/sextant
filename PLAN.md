@@ -469,22 +469,87 @@ entirely across devices"; keep that standard).
 
 Resolve these when the phase arrives, not now. Record the answer here when made.
 
-1. **Demo corpus.** BIRD's databases are the benchmark, but the *live demo*
-   should be something a recruiter finds legible in ten seconds. Candidates: a
-   public e-commerce dataset, a chess games database (ties to LAU Chess Club), or
-   a Lebanon-relevant open dataset. Decide by P1.
+1. ~~**Demo corpus.**~~ **DECIDED 2026-08-03 — the Brazilian E-Commerce Public
+   Dataset by Olist.** See §11.1 below.
 2. **Chart selection.** Rule-based from the result shape, or LLM-chosen? Start
    rule-based (one numeric column + one categorical → bar; two numeric → scatter;
    time column → line). Revisit at P8. Load the `dataviz` skill before writing any
    chart code.
 3. **Postgres vs. SQLite for the demo.** BIRD ships SQLite, so the dialect
    abstraction is needed regardless. Postgres for the demo is a stronger signal
-   but costs deploy complexity. Decide at P3 when the dialect adapters land.
+   but costs deploy complexity. Still open: Olist (#1) ships as CSVs and as a
+   community SQLite build, so it seeds cleanly into either engine and does not
+   force the answer. Decide at P3 when the dialect adapters land.
 4. **Provider mix.** Anthropic for both tiers is simplest and gives clean cost
    accounting. z.ai GLM as the cheap tier reuses `council`'s adapter and is
    cheaper, but muddies the cost story with two price tables. Decide at P6.
 5. **Embedding model.** `all-MiniLM-L6-v2` is the default and adequate. Revisit
    only if schema recall@k is the measured bottleneck.
+
+### 11.1 Demo corpus — decided (2026-08-03)
+
+**The Brazilian E-Commerce Public Dataset by Olist.** ~100k orders, 2016–2018,
+distributed as nine related CSVs and as a community-built SQLite database.
+
+**The reframe that drove it.** The demo corpus is not what stresses retrieval —
+BIRD is, at 95 databases and 33.4 GB. Olist is nine tables and fits in a context
+window, so on the demo the retriever is *illustrated*, not stressed. The demo's
+job is to make the loop legible: the trace timeline, a guard rejection, the cost
+ledger, an escalation, an abstention. Legibility only counts if a viewer can
+tell a correct answer from a wrong one, and that criterion decides the rest.
+
+Why Olist:
+
+- **Already relational.** `orders` is a central hub, `order_items` is a genuine
+  bridge with no lexical overlap, and `customers → orders → order_items →
+  products → sellers` is a real five-hop path. No schema synthesis required.
+- **Product categories are stored in Portuguese** (`beleza_saude`,
+  `cama_mesa_banho`) with English translations in a *separate table*. "How many
+  health & beauty products sold in Q2" is unanswerable from column names, needs
+  sampled distinct values, and needs an FK hop to a translation table that
+  shares no vocabulary with the question. That is §5.1's argument occurring
+  naturally in real data — a better retrieval demo than the contrived
+  `status = 'C'` in `infra/fixtures/toy.sql`.
+- **Off-benchmark.** BIRD dev's eleven databases are `california_schools`,
+  `card_games`, `codebase_community`, `debit_card_specializing`,
+  `european_football_2`, `financial`, `formula_1`, `student_club`, `superhero`,
+  `toxicology`, `thrombosis_prediction`. No retail among them, so the demo shows
+  the loop generalizing past the benchmarked domains.
+- **Verifiable by a stranger**, and it matches the CV narrative in §2 — revenue,
+  delivery times, review scores are the job the agent is claimed to replace.
+- **Exercises all three chart rules** in open decision #2: revenue over time
+  (line), revenue by category (bar), freight vs. distance (scatter).
+- **Cheapest to adopt.** The P0 placeholders in `infra/demo-db/01-schema.sql`
+  and `infra/fixtures/toy.sql` already commit to `customers / products / orders
+  / order_items`, so the toy fixture stays a faithful miniature of the demo
+  corpus and the P3 dialect adapters target one logical shape in both.
+
+Rejected, and why — recorded so it is not relitigated:
+
+- **Chess (Lichess).** CC0 and the richest value-encoding story of the three
+  (ECO codes, `1-0`, `Time forfeit`, `180+2`), but the raw export is flat PGN,
+  so the relational schema would be synthesized rather than real; its
+  distinctive feature (`white_player_id` and `black_player_id` both keyed to
+  `players`) stresses *generation*, not the FK expansion P5 exists to show;
+  BIRD dev is already sports- and games-heavy, making it the least
+  differentiated pick; and a non-player cannot sanity-check an answer, which
+  defeats the demo's purpose.
+- **Lebanon open data.** HDX, Open Data Lebanon, and CAS are overwhelmingly flat
+  statistical CSVs with per-source licensing; there is no ready-made relational
+  corpus, so the schema would be authored and the join topology thin. The
+  richest available sets (blast damage, refugee populations) also carry tonal
+  risk that this system's failure modes — a confident wrong join, a hallucinated
+  number — make worse rather than better.
+
+Deferred, not blocking:
+
+- **License.** Not verified; deliberately not gating a learning project. Check
+  it before the public deploy in §10, not before P1 seeds the corpus locally.
+- **Subset size.** ~100k orders / ~110k order items is a few hundred MB in
+  Postgres and free tiers are tight. Decide a subset when P8 picks a host.
+- **A second corpus, optional.** A small CAS inflation schema at P8 would give
+  the fingerprint-scoped cache in §5.6 two real corpora to invalidate between.
+  Worth doing only if P7 lands early; drop it without regret otherwise.
 
 ## 12. Prior art in this workspace — read before building
 

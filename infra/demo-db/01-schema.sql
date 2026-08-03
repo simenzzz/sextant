@@ -1,10 +1,12 @@
 -- Postgres seed for the live demo.
 --
--- PLACEHOLDER. PLAN.md section 11, open decision #1 (which corpus a recruiter
--- finds legible in ten seconds) is due at P1 and is not decided here. What
--- this file does establish is the shape the real corpus has to arrive in:
--- a read-only role, a schema with a genuine bridge table, and at least one
--- encoded column whose values matter more than its name.
+-- PLACEHOLDER, still. The corpus is now decided — Olist, see PLAN.md §11.1 —
+-- but it is seeded at P1, not here. What this file establishes meanwhile is
+-- the shape the real corpus arrives in: a read-only role, a schema with a
+-- genuine bridge table, and at least one column whose values matter more than
+-- its name. Olist keeps all three (order_items is the bridge; product
+-- categories are Portuguese with translations in a separate table), so this
+-- placeholder is a faithful miniature of what replaces it.
 --
 -- Mirrors infra/fixtures/toy.sql so the dialect adapters (P3) have the same
 -- logical schema to target in both SQLite and Postgres.

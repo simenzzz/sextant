@@ -68,7 +68,7 @@ make stubs             # list open TODO(you) sites
 make up                # demo Postgres + both services
 ```
 
-Working in this repo? Read [CLAUDE.md](./CLAUDE.md) first — it defines who
+Working in this repo? Read [CLAUDE.md](./.claude/CLAUDE.md) first — it defines who
 implements what, and why the test suite is sometimes red on purpose.
 
 ## License

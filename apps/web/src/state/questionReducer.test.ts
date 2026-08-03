@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TraceEventV1 } from '../lib/protocol'
+import type { CostLedgerV1, ResultSetV1, TraceEventV1 } from '../lib/protocol'
 import {
   MAX_EVENTS,
   MAX_WARNINGS,
   initialState,
   questionReducer,
   TERMINAL_TYPES,
+  isFailure,
+  RECORDED_OUTCOMES,
 } from './questionReducer'
 
 const ev = (overrides: Partial<TraceEventV1> & Pick<TraceEventV1, 'type'>): TraceEventV1 =>
@@ -133,5 +135,75 @@ describe('questionReducer', () => {
     const next = questionReducer(initialState, { type: 'status_changed', status: 'open' })
     expect(next.status).toBe('open')
     expect(next.events).toHaveLength(0)
+  })
+})
+
+describe('result and ledger frames', () => {
+  const result: ResultSetV1 = {
+    schema: 'result_set.v1',
+    run_id: 'r_1',
+    columns: [{ name: 'n' }],
+    rows: [[2]],
+    row_count: 1,
+    truncated: false,
+  }
+
+  const ledger: CostLedgerV1 = {
+    schema: 'cost_ledger.v1',
+    run_id: 'r_1',
+    price_table_date: '2026-08-03',
+    entries: [],
+    totals: { tokens_in: 400, tokens_out: 25, usd: 0.000525, ms: 900 },
+  }
+
+  it('folds the result in and takes its row count', () => {
+    const next = questionReducer(initialState, { type: 'result_received', result })
+    expect(next.result).toEqual(result)
+    expect(next.rowCount).toBe(1)
+  })
+
+  it('lets the ledger total replace the running sum from the trace', () => {
+    // The trace carries per-step dollars for live feedback; the ledger is the
+    // authoritative accounting, and the two differ when a step's cost was
+    // unknown.
+    const running = questionReducer(initialState, {
+      type: 'event_received',
+      event: { schema: 'trace_event.v1', type: 'generated', step: 1, elapsed_ms: 5, usd: 0.9 },
+    })
+    expect(running.usd).toBeCloseTo(0.9)
+
+    const next = questionReducer(running, { type: 'ledger_received', ledger })
+    expect(next.usd).toBeCloseTo(0.000525)
+    expect(next.ledger).toEqual(ledger)
+  })
+
+  it('clears the result and ledger when a new run starts', () => {
+    const withResult = questionReducer(initialState, { type: 'result_received', result })
+    const next = questionReducer(withResult, { type: 'run_requested' })
+    // Leftover rows from a previous question under a new question is worse
+    // than showing nothing.
+    expect(next.result).toBeNull()
+    expect(next.ledger).toBeNull()
+  })
+
+  it('keeps the first terminal outcome when a stream contradicts itself', () => {
+    const answered = questionReducer(initialState, {
+      type: 'event_received',
+      event: { schema: 'trace_event.v1', type: 'answered', step: 1, elapsed_ms: 5 },
+    })
+    const next = questionReducer(answered, {
+      type: 'event_received',
+      event: { schema: 'trace_event.v1', type: 'error', step: 2, elapsed_ms: 6 },
+    })
+    expect(next.outcome).toBe('answered')
+  })
+})
+
+describe('isFailure', () => {
+  it('treats only a genuine error as a failure', () => {
+    expect(isFailure('error')).toBe(true)
+    for (const outcome of RECORDED_OUTCOMES) {
+      expect(isFailure(outcome)).toBe(false)
+    }
   })
 })

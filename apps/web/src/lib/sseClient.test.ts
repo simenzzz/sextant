@@ -13,10 +13,27 @@ class FakeEventSource implements EventSourceLike {
   onopen: ((this: unknown, ev: Event) => unknown) | null = null
   onmessage: ((this: unknown, ev: MessageEvent) => unknown) | null = null
   onerror: ((this: unknown, ev: Event) => unknown) | null = null
+  listeners = new Map<string, Array<(ev: MessageEvent) => void>>()
   closed = false
 
   constructor(readonly url: string) {
     FakeEventSource.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: (ev: MessageEvent) => void) {
+    const existing = this.listeners.get(type) ?? []
+    this.listeners.set(type, [...existing, listener])
+  }
+
+  removeEventListener(type: string, listener: (ev: MessageEvent) => void) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((l) => l !== listener))
+  }
+
+  /** Delivers a named frame, as a real EventSource would. */
+  emit(type: string, data: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data } as MessageEvent)
+    }
   }
 
   close() {

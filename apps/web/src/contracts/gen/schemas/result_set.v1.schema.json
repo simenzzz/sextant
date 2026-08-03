@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/result_set.v1.schema.json",
+  "title": "ResultSetV1",
+  "description": "The rows a validated plan actually returned, streamed to the browser as a named SSE frame and consumed by the eval harness from the same stream. trace_event.v1 carries row_count but never the rows themselves: a trace records what happened, and every event is persisted, so putting result data there would bloat every stored timeline. This is the answer; that is the story of getting to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "columns", "rows", "row_count", "truncated"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always result_set.v1",
+      "type": "string",
+      "const": "result_set.v1"
+    },
+    "run_id": {
+      "description": "Identifier of the agent run that produced these rows",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "columns": {
+      "description": "The result columns in selection order. Row cells are positional against this list, so its length is the width of every row.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/column" },
+      "minItems": 1,
+      "maxItems": 64
+    },
+    "rows": {
+      "description": "The rows carried on this frame. May be shorter than row_count when the frame hit its byte budget — see truncated. Cells are positional against columns.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/cell" },
+        "maxItems": 64
+      },
+      "maxItems": 10000
+    },
+    "row_count": {
+      "description": "How many rows the executor actually read, after the plan's enforced LIMIT. This is the honest count even when rows carries fewer, so a truncated frame never understates the result.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "True when rows carries fewer entries than row_count because the frame exceeded the runtime's result byte budget. The UI must say so rather than presenting a partial table as complete.",
+      "type": "boolean",
+      "default": false
+    },
+    "elapsed_ms": {
+      "description": "Milliseconds the execution itself took, measured against the injected clock",
+      "type": "integer",
+      "minimum": 0
+    },
+    "schema_fingerprint": {
+      "description": "Fingerprint of the database schema these rows were read under, matching the plan's. Lets a cached or replayed result be told apart from one read against a changed schema.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-f0-9]+$"
+    }
+  },
+  "$defs": {
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "Column name as the driver reported it",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "description": "Declared type as the driver reported it, when it reported one. Drivers do not always know — SQLite returns nothing for a computed column — and an absent type is an honest answer where a guessed one would drive the wrong chart at P8.",
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "cell": {
+      "description": "One value. Null is a real SQL result and is preserved rather than coerced to an empty string. Written as an explicit anyOf rather than a type union so the length bound lands on the string branch alone, and so the browser's validator can keep Ajv strict mode on — under a type union it would need allowUnionTypes, which switches the check off for every schema, not just this one.",
+      "anyOf": [
+        { "type": "string", "maxLength": 4096 },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

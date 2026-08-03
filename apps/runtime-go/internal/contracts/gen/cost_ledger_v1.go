@@ -31,6 +31,12 @@ type Entry struct {
 	// True when the semantic cache served this step and no provider call was made
 	CacheHit bool `json:"cache_hit,omitempty,omitzero" yaml:"cache_hit,omitempty" mapstructure:"cache_hit,omitempty"`
 
+	// False when the provider closed the stream without reporting usage. The runtime
+	// never estimates token counts, so such a step has an unknown cost, not a zero
+	// one — tokens_in, tokens_out and usd are then all 0 and carry no meaning. A
+	// reader that ignores this flag will report a paid step as free.
+	CostKnown bool `json:"cost_known,omitempty,omitzero" yaml:"cost_known,omitempty" mapstructure:"cost_known,omitempty"`
+
 	// True when this step ran on the expensive tier because the router escalated
 	Escalated bool `json:"escalated,omitempty,omitzero" yaml:"escalated,omitempty" mapstructure:"escalated,omitempty"`
 
@@ -65,6 +71,11 @@ type Totals struct {
 
 	// Number of steps that actually hit a provider, i.e. entries with cache_hit false
 	ProviderCalls int `json:"provider_calls,omitempty,omitzero" yaml:"provider_calls,omitempty" mapstructure:"provider_calls,omitempty"`
+
+	// How many entries have cost_known false. When this is above zero the totals
+	// above are a LOWER BOUND, not the cost of the run, and anything deriving cost
+	// per correct answer has to say so.
+	StepsCostUnknown int `json:"steps_cost_unknown,omitempty,omitzero" yaml:"steps_cost_unknown,omitempty" mapstructure:"steps_cost_unknown,omitempty"`
 
 	// TokensIn corresponds to the JSON schema field "tokens_in".
 	TokensIn int `json:"tokens_in" yaml:"tokens_in" mapstructure:"tokens_in"`

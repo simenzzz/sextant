@@ -1,0 +1,8 @@
+{
+  "schema": "result_set.v1",
+  "run_id": "r_01hq8w2c9m",
+  "columns": [{ "name": "cancelled_orders" }],
+  "rows": [[2]],
+  "row_count": 1,
+  "truncated": false
+}

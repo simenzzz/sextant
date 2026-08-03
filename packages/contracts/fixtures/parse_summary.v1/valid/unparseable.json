@@ -1,0 +1,9 @@
+{
+  "schema": "parse_summary.v1",
+  "ok": false,
+  "dialect": "postgres",
+  "statement_count": 0,
+  "node_kinds": [],
+  "tables": [],
+  "error": "could not parse input as a postgres statement"
+}

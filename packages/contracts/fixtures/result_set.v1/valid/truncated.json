@@ -1,0 +1,12 @@
+{
+  "schema": "result_set.v1",
+  "run_id": "r_01hq8w2c9m",
+  "columns": [{ "name": "id", "type": "INTEGER" }, { "name": "note", "type": "TEXT" }],
+  "rows": [
+    [1, "first"],
+    [2, "second"]
+  ],
+  "row_count": 500,
+  "truncated": true,
+  "elapsed_ms": 61
+}

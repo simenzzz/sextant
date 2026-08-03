@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sextant.dev/schemas/parse_summary.v1.schema.json",
+  "title": "ParseSummaryV1",
+  "description": "Everything a SQL parser can say about one candidate statement, with no policy applied. The retriever sidecar produces this with sqlglot; the Go guard reads it and decides. Splitting it this way keeps the parsing where the good parser is and the rejection decision where the runtime is — a summary is evidence, never a verdict. Absent optional fields mean the parser could not establish that fact, so a guard reading this must fail closed rather than assume a default.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "ok", "dialect", "statement_count", "node_kinds", "tables"],
+  "properties": {
+    "schema": {
+      "description": "Contract discriminator, always parse_summary.v1",
+      "type": "string",
+      "const": "parse_summary.v1"
+    },
+    "ok": {
+      "description": "True when the input parsed. An unparseable generation is a routine result, not a service failure, so the sidecar answers 200 with ok false and the guard rejects deliberately.",
+      "type": "boolean"
+    },
+    "dialect": {
+      "description": "Dialect the statement was parsed as. Must match the dialect of the database the plan will execute against; a summary parsed as the wrong dialect proves nothing about the right one.",
+      "type": "string",
+      "enum": ["sqlite", "postgres"]
+    },
+    "statement_count": {
+      "description": "How many statements the input contained. Anything but 1 is a stacked query. Zero when ok is false.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1024
+    },
+    "node_kinds": {
+      "description": "Every distinct AST node type present, as the parser names them (sqlglot expression class names, e.g. Select, Join, Drop, Attach, Command). This is the input to the guard's ALLOWLIST: the guard accepts a statement only when every kind here is on its list, so a parser upgrade that introduces a new node type causes a rejection rather than a silent pass. Empty when ok is false.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+      },
+      "maxItems": 256
+    },
+    "tables": {
+      "description": "Every table the statement references, as resolved from the AST. The guard proves this is a subset of the schema subset handed to generation. Empty when ok is false.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "maxItems": 64
+    },
+    "has_limit": {
+      "description": "Whether the input carried a LIMIT of its own, before any rewrite",
+      "type": "boolean"
+    },
+    "limit_value": {
+      "description": "The LIMIT the input carried, when has_limit is true. Absent when the input had none, or when it had one the parser could not resolve to a constant — a LIMIT computed from an expression is not a bound the guard can trust.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "normalized_sql": {
+      "description": "The statement re-rendered by the parser with the caller's row cap applied — injected when absent, clamped when larger. This is the mechanical rewrite only; whether to accept it is the guard's decision. Present whenever ok is true.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "limit_injected": {
+      "description": "True when the rewrite added a LIMIT the input did not have",
+      "type": "boolean",
+      "default": false
+    },
+    "limit_clamped": {
+      "description": "True when the input's LIMIT exceeded the caller's cap and the rewrite lowered it",
+      "type": "boolean",
+      "default": false
+    },
+    "error": {
+      "description": "Why the parse failed, when ok is false. A classified, human-readable reason — never the offending SQL, and never a raw parser traceback, since both travel onward to a browser.",
+      "type": "string",
+      "maxLength": 500
+    }
+  }
+}

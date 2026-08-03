@@ -66,6 +66,7 @@ func TestSharedFixtureCorpus(t *testing.T) {
 func TestEveryDeclaredContractCompiles(t *testing.T) {
 	declared := []Name{
 		QuestionRequestV1, TraceEventV1, SQLPlanV1, CostLedgerV1, EvalResultV1,
+		ParseSummaryV1, ResultSetV1,
 	}
 	for _, n := range declared {
 		t.Run(string(n), func(t *testing.T) {

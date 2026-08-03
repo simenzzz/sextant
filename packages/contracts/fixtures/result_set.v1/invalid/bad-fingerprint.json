@@ -1,0 +1,9 @@
+{
+  "schema": "result_set.v1",
+  "run_id": "r_01hq8w2c9m",
+  "columns": [{ "name": "id" }],
+  "rows": [[1]],
+  "row_count": 1,
+  "truncated": false,
+  "schema_fingerprint": "9F2B7C1A4E"
+}

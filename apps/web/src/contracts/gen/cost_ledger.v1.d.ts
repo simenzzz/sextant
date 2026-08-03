@@ -50,6 +50,10 @@ export interface Entry {
    */
   ms: number;
   /**
+   * False when the provider closed the stream without reporting usage. The runtime never estimates token counts, so such a step has an unknown cost, not a zero one — tokens_in, tokens_out and usd are then all 0 and carry no meaning. A reader that ignores this flag will report a paid step as free.
+   */
+  cost_known?: boolean;
+  /**
    * True when the semantic cache served this step and no provider call was made
    */
   cache_hit?: boolean;
@@ -75,4 +79,8 @@ export interface Totals {
    */
   provider_calls?: number;
   cache_hits?: number;
+  /**
+   * How many entries have cost_known false. When this is above zero the totals above are a LOWER BOUND, not the cost of the run, and anything deriving cost per correct answer has to say so.
+   */
+  steps_cost_unknown?: number;
 }

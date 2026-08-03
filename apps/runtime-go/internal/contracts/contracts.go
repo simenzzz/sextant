@@ -34,6 +34,8 @@ const (
 	SQLPlanV1         Name = "sql_plan.v1"
 	CostLedgerV1      Name = "cost_ledger.v1"
 	EvalResultV1      Name = "eval_result.v1"
+	ParseSummaryV1    Name = "parse_summary.v1"
+	ResultSetV1       Name = "result_set.v1"
 )
 
 const schemaDir = "gen/schemas"

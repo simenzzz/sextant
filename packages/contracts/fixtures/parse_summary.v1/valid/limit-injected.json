@@ -1,0 +1,12 @@
+{
+  "schema": "parse_summary.v1",
+  "ok": true,
+  "dialect": "sqlite",
+  "statement_count": 1,
+  "node_kinds": ["Select", "Table", "Column", "Join", "Limit"],
+  "tables": ["customers", "orders"],
+  "has_limit": false,
+  "normalized_sql": "SELECT c.name FROM customers AS c JOIN orders AS o ON o.customer_id = c.id LIMIT 500",
+  "limit_injected": true,
+  "limit_clamped": false
+}

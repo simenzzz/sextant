@@ -25,6 +25,10 @@ class Entry(BaseModel):
         ..., description='Dollars for this step, computed from the versioned price table'
     )
     ms: conint(ge=0) = Field(..., description='Wall-clock milliseconds this step took')
+    cost_known: bool | None = Field(
+        True,
+        description='False when the provider closed the stream without reporting usage. The runtime never estimates token counts, so such a step has an unknown cost, not a zero one — tokens_in, tokens_out and usd are then all 0 and carry no meaning. A reader that ignores this flag will report a paid step as free.',
+    )
     cache_hit: bool | None = Field(
         False,
         description='True when the semantic cache served this step and no provider call was made',
@@ -54,6 +58,10 @@ class Totals(BaseModel):
         description='Number of steps that actually hit a provider, i.e. entries with cache_hit false',
     )
     cache_hits: conint(ge=0) | None = 0
+    steps_cost_unknown: conint(ge=0) | None = Field(
+        0,
+        description='How many entries have cost_known false. When this is above zero the totals above are a LOWER BOUND, not the cost of the run, and anything deriving cost per correct answer has to say so.',
+    )
 
 
 class CostLedgerV1(BaseModel):

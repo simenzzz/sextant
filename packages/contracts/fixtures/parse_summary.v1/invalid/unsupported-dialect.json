@@ -1,0 +1,8 @@
+{
+  "schema": "parse_summary.v1",
+  "ok": true,
+  "dialect": "mysql",
+  "statement_count": 1,
+  "node_kinds": ["Select"],
+  "tables": ["orders"]
+}

@@ -11,19 +11,40 @@ import addFormats from 'ajv-formats'
 
 import costLedgerV1 from '../contracts/gen/schemas/cost_ledger.v1.schema.json'
 import questionRequestV1 from '../contracts/gen/schemas/question_request.v1.schema.json'
+import resultSetV1 from '../contracts/gen/schemas/result_set.v1.schema.json'
 import sqlPlanV1 from '../contracts/gen/schemas/sql_plan.v1.schema.json'
 import traceEventV1 from '../contracts/gen/schemas/trace_event.v1.schema.json'
+import type { CostLedgerV1 } from '../contracts/gen/cost_ledger.v1'
 import type { QuestionRequestV1 } from '../contracts/gen/question_request.v1'
+import type { ResultSetV1 } from '../contracts/gen/result_set.v1'
 import type { TraceEventV1 } from '../contracts/gen/trace_event.v1'
 
-export type { QuestionRequestV1, TraceEventV1 }
+export type { CostLedgerV1, QuestionRequestV1, ResultSetV1, TraceEventV1 }
 
 /**
  * A single SSE frame larger than this is treated as hostile rather than
  * parsed. JSON.parse on an unbounded string is a denial-of-service the client
  * inflicts on itself.
+ *
+ * Applies to trace-event and cost-ledger frames, which are small by
+ * construction — a trace event is one state transition and a ledger is bounded
+ * at 256 entries.
  */
 export const MAX_FRAME_CHARS = 256 * 1024
+
+/**
+ * The result-set frame gets its own, larger ceiling.
+ *
+ * A result set legitimately carries data — up to the plan's row limit — so the
+ * trace-event ceiling would reject honest answers. It is NOT unbounded: the
+ * runtime enforces a byte budget on the frame it emits (SEXTANT_MAX_RESULT_BYTES,
+ * default 1 MiB, ceiling 4 MiB) and truncates rows to fit, setting `truncated`.
+ * This constant is that ceiling, so the largest frame the runtime can legally
+ * emit is always admissible here and anything above it did not come from a
+ * conforming server. Raising one without the other silently breaks large
+ * results — apps/runtime-go/internal/config asserts the same number.
+ */
+export const MAX_RESULT_FRAME_CHARS = 4 * 1024 * 1024
 
 /**
  * Two instances on purpose.
@@ -43,6 +64,7 @@ addFormats(outboundAjv)
 
 const validators: Record<string, ValidateFunction> = {
   'cost_ledger.v1': inboundAjv.compile(costLedgerV1),
+  'result_set.v1': inboundAjv.compile(resultSetV1),
   'sql_plan.v1': inboundAjv.compile(sqlPlanV1),
   'trace_event.v1': inboundAjv.compile(traceEventV1),
   'question_request.v1': outboundAjv.compile(questionRequestV1),
@@ -74,15 +96,18 @@ export function validate<T>(contract: string, doc: unknown): ParseResult<T> {
 }
 
 /**
- * Parses one raw SSE frame into a trace event.
+ * Parses one raw SSE frame against a named contract, under a size ceiling.
  *
  * Never throws. A malformed frame is a routine event on a network boundary,
  * not an exception: the caller shows the connection as degraded and carries
  * on, rather than tearing down a React tree over one bad line.
+ *
+ * The length check precedes JSON.parse rather than following it — parsing an
+ * unbounded string to find out how big it is defeats the point of the limit.
  */
-export function parseEvent(raw: string): ParseResult<TraceEventV1> {
-  if (raw.length > MAX_FRAME_CHARS) {
-    return { ok: false, error: `frame exceeds ${MAX_FRAME_CHARS} characters` }
+function parseFrame<T>(raw: string, contract: string, maxChars: number): ParseResult<T> {
+  if (raw.length > maxChars) {
+    return { ok: false, error: `${contract} frame exceeds ${maxChars} characters` }
   }
 
   let doc: unknown
@@ -91,7 +116,22 @@ export function parseEvent(raw: string): ParseResult<TraceEventV1> {
   } catch (err) {
     return { ok: false, error: `malformed JSON: ${(err as Error).message}` }
   }
-  return validate<TraceEventV1>('trace_event.v1', doc)
+  return validate<T>(contract, doc)
+}
+
+/** Parses one default-named SSE frame into a trace event. */
+export function parseEvent(raw: string): ParseResult<TraceEventV1> {
+  return parseFrame<TraceEventV1>(raw, 'trace_event.v1', MAX_FRAME_CHARS)
+}
+
+/** Parses one `result_set` SSE frame — the rows the run actually returned. */
+export function parseResultSet(raw: string): ParseResult<ResultSetV1> {
+  return parseFrame<ResultSetV1>(raw, 'result_set.v1', MAX_RESULT_FRAME_CHARS)
+}
+
+/** Parses one `cost_ledger` SSE frame — what the run spent, itemized. */
+export function parseCostLedger(raw: string): ParseResult<CostLedgerV1> {
+  return parseFrame<CostLedgerV1>(raw, 'cost_ledger.v1', MAX_FRAME_CHARS)
 }
 
 /**

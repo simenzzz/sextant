@@ -1,0 +1,7 @@
+{
+  "schema": "parse_summary.v1",
+  "dialect": "sqlite",
+  "statement_count": 1,
+  "node_kinds": ["Select"],
+  "tables": ["orders"]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "result_set.v1",
+  "run_id": "r_01hq8w2c9m",
+  "columns": [
+    { "name": "name", "type": "TEXT" },
+    { "name": "country", "type": "TEXT" },
+    { "name": "orders", "type": "INTEGER" },
+    { "name": "avg_total", "type": "REAL" },
+    { "name": "is_active" },
+    { "name": "last_seen", "type": "TEXT" }
+  ],
+  "rows": [
+    ["Amal Haddad", "LB", 2, 129.0, true, null],
+    ["Rita Khoury", "LB", 1, 46.75, true, "2026-03-09"],
+    ["Lena Farah", "FR", 1, 18.0, false, null]
+  ],
+  "row_count": 3,
+  "truncated": false,
+  "elapsed_ms": 4,
+  "schema_fingerprint": "9f2b7c1a4e"
+}

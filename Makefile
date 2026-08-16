@@ -111,9 +111,39 @@ coverage: ## Report coverage for every service
 
 .PHONY: stubs
 stubs: ## List open TODO(you) sites — the work that is Sami's, not Claude's
+	@# The second filter requires the marker to BE the statement, not merely
+	@# appear on the line. internal/index documents the contract in its comments
+	@# and exercises it in test fixtures; a bare text search reported 12 sites
+	@# when 4 were open, which makes the worklist useless.
 	@grep -rn "TODO(you)" apps eval \
 		--include=*.go --include=*.py --include=*.ts --include=*.tsx \
-		2>/dev/null || echo "no open stubs"
+		2>/dev/null \
+		| grep -E ':[0-9]+:[[:space:]]*(panic|raise|throw)' \
+		|| echo "no open stubs"
+
+# ---------------------------------------------------------------- plumb ----
+# The claim-verification surface (PLAN.md section 5.7). Deterministic at P2.5:
+# no model, no network, no credential.
+
+PLUMB_BIN ?= $(GO_DIR)/bin/plumb
+
+.PHONY: plumb
+plumb: ## Build the plumb binary
+	cd $(GO_DIR) && go build -o bin/plumb ./cmd/plumb
+
+.PHONY: plumb-self
+plumb-self: plumb ## Run plumb against this repository (informational)
+	@# --workspace-siblings suits a multi-repo workspace and is deliberately not
+	@# used by plumb-check, whose result must not depend on neighbouring folders.
+	@$(PLUMB_BIN) verify --workspace-siblings . || true
+
+.PHONY: plumb-check
+plumb-check: plumb ## Fail if this repository's docs contradict it
+	@# Deliberately NOT wired into CI yet, and not called a gate. PLAN.md 5.7
+	@# lists two classes of finding that are inherent until the P6.5 claim layer
+	@# lands, so this target cannot be green on this repository today. Wiring it
+	@# needs a baseline or allowlist first.
+	$(PLUMB_BIN) verify .
 
 # ----------------------------------------------------------------- eval ----
 # Placeholders until P2. They exist now so PLAN.md section 9's command list is

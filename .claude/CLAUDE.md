@@ -60,6 +60,13 @@ intellectual core; most do not exist yet and arrive with their phase.
 | `internal/cache/cache.go` | `Lookup` / `Store` — fingerprint scoping, threshold, invalidation | P7 |
 | `retriever-python/src/retrieve/expand.py` | `expand_fk` — foreign-key hop expansion under a table budget | P5 |
 | `retriever-python/src/retrieve/rerank.py` | `rerank` — rerank policy and truncation | P5 |
+| `internal/claims/extract.go` | `Extract` — prose → structured claims, verbatim quotes only | P6.5 |
+| `internal/verdict/verdict.go` | `Decide` — evidence rows → SUPPORTED/CONTRADICTED/UNVERIFIABLE, conformal-calibrated | P6.5 |
+
+Plumb's indexer (`internal/index`, `cmd/plumb`) is **Claude's**, decided
+2026-08-12: it is mechanical — a tree walk and a SQLite projection — and holds
+none of the intellectual core. The judgement layers above it are Sami's, per
+the table.
 
 Claude owns everything else: HTTP and SSE transport, config, trace store,
 executor and driver plumbing, read-only connections, provider adapters and
@@ -129,6 +136,8 @@ sextant/
     internal/ratelimit/       per-client token bucket
     internal/trace/           SQLite trace store and cost ledger
     internal/httpx/           SSE stream writer
+    internal/index/           repo → repo.db; the deterministic Plumb checks
+    cmd/plumb/                the claim-verification CLI (PLAN.md 5.7)
     internal/contracts/gen/   GENERATED — do not hand-edit
   apps/retriever-python/
     src/main.py               create_app() with an injectable runtime factory
@@ -171,7 +180,7 @@ sextant/
 
 - **SQL executes only on a read-only connection under a read-only database
   role.** The AST guard is not the only thing between a bad generation and a
-  dropped table. See `infra/demo-db/02-readonly-role.sql`.
+  dropped table. See `infra/demo-db/02-readonly-role.sh`.
 - **Every provider HTTP client has an explicit timeout.** `PLAN.md` §12 names
   council's missing timeout as the one known defect not to repeat: a hung
   upstream connection was bounded only by the session context.
@@ -232,6 +241,9 @@ or surface the drift explicitly. Never leave it silent.
 | Test all | `make test` |
 | Coverage | `make coverage` |
 | **List open stubs** | `make stubs` |
+| Build plumb | `make plumb` |
+| Check this repo's own docs | `make plumb-self` |
+| Fail on doc contradictions | `make plumb-check` (not in CI — see PLAN.md §5.7) |
 | Rebuild the toy database | `make toy-db` |
 | Full stack | `make up` / `make down` / `make logs` |
 | Compose smoke test | `make smoke` |

@@ -360,6 +360,113 @@ Threshold tuning is a coverage/precision tradeoff and belongs in the README.
 
 ---
 
+### 5.7 Plumb — the claim-verification surface
+
+**Problem.** Documentation drifts from the repository it describes, and the
+layer that drifts worst is the one loaded into every agent session. Verified
+across this workspace on 2026-08-12: `loom/README.md` advertises a from-scratch
+HNSW index and a CI regression gate against an `eval/` tree of six empty
+directories and a `Makefile` calling a `loom/eval/run.py` that does not exist;
+`pokemonScraper/ROADMAP.md` marks Phases 0–4 🚧 with all five committed and
+Phases 6–10 shipped but absent; `council/CLAUDE.md:22` says the frontend is
+"still greenfield" over a fully populated `council/frontend/src/`; and
+`~/.claude/skills/claude-machinery-map` asserts four things about this machine
+that stopped being true weeks ago, in a `description:` field every session
+loads.
+
+Five roadmaps in the workspace use **four incompatible marker dialects**
+(`✅ 🚧 ⬜`, `[x]`, `COMPLETE`, `DONE`) across ~600 done-claims, so no regex
+reaches this. `pokemonScraper`'s drift is semantic: the checkboxes are ticked,
+the phase heading is not.
+
+**Why it belongs in Sextant.** Index a repository into SQLite and the question
+"is this claim still true?" is the same pipeline as "what does this data say?",
+pointed at a different store. The guard, executor, repair loop, budget, trace,
+ledger, uncertainty router, and eval harness are reused unchanged; only three
+components are new.
+
+| Engine component | Sextant surface | Plumb surface |
+| --- | --- | --- |
+| Store | Olist / BIRD | `repo.db` — files, dirs, stubs, commits, doc claims, doc paths, make targets |
+| Retriever (§5.1) | table docs + FK expansion | symbol docs + import-graph expansion |
+| Generation | SQL | SQL over `repo.db` |
+| `guard.Validate` | ✅ | unchanged |
+| Executor, repair, budget, trace, ledger | ✅ | unchanged |
+| Router (§5.4) | "no answerable join" | `UNVERIFIABLE` |
+| Render | chart | verdict + evidence rows |
+
+**The three new components.**
+
+1. **`internal/index` + `cmd/plumb` (P2.5).** Deterministic: no model,
+   no network, no credential. A finding is a contradiction between two indexed
+   facts. Five checks — `dangling-doc-path`, `empty-advertised-dir`,
+   `missing-target-script`, `phase-marker-contradiction`,
+   `undocumented-shipped-phase`.
+
+2. **`internal/claims` (P6.5).** Prose → structured claims, verbatim quotes
+   only. Reuses the validation-feedback retry loop from
+   `learningproj/apps/curriculum-python/src/utils/retry.py`.
+
+3. **`internal/verdict` (P6.5).** `SUPPORTED | CONTRADICTED | UNVERIFIABLE`
+   with the evidence rows behind it, calibrated by porting
+   `secProj/waf/specialist/conformal.py`. Abstention is the headline
+   behaviour: a verifier that guesses reintroduces the hallucination it exists
+   to catch.
+
+**Claim surface.** Repo docs — README, ROADMAP, everything under docs/ including
+the ADR set — carry
+the benchmark rigor, scored against DocPrism and CASCADE. Agent context
+(CLAUDE.md, AGENTS.md, the skill files under .claude/skills/, memory files) carries
+the originality; its ground truth is one machine, so it is reported as a case
+study and never as a benchmark.
+
+**Known limits of the deterministic layer.** Both are inherent, not bugs, and
+both are what the P6.5 claim layer exists to close:
+
+- **Forward-looking references.** The ownership table names a P6 router file
+  that does not exist yet, and discloses in prose that these "arrive
+  with their phase". Only a reader of prose can tell disclosure from drift, so
+  P2.5 reports seven such lines on this repository.
+- **Cross-repo references without a repo prefix.** This file cites secProj
+  paths such as its conformal router by a path relative to *that* repo. A reference whose first segment names
+  a sibling directory is filtered; one written relative to the other repo's
+  root cannot be, from inside this one.
+
+`make plumb-check` is **not wired into CI** and is not called a gate: the two
+limitation classes above mean it cannot be green on this repository until the
+P6.5 claim layer can read the disclosures, and a target that is red by
+construction teaches people to ignore it. Wiring it needs a committed baseline
+or an allowlist first.
+
+Precision is bought by refusing to guess: an ambiguous reference (`try/catch`,
+`ui/Button`) is recorded and not reported, a gitignored path is an artifact
+rather than drift, and `.claude/plans/` is a working log rather than a claim.
+Those three rules took the false-positive count on `ishtirak` — the workspace's
+least-drifted repository — from 47 to 0.
+
+**Hardening.** The threat model is a repository someone else wrote — a clone, a
+fork's pull request, a CI checkout — so its contents *and* its `.git/config` are
+attacker-controlled. Four defences, each from a reproduced exploit in the P2.5
+security review:
+
+- **`hardenedConfig` on every git invocation** (`-c core.fsmonitor=false`,
+  `-c core.hooksPath=/dev/null`, …). `core.fsmonitor` names a program git runs
+  while refreshing the index, and `git check-ignore` refreshes the index, so
+  pointing the tool at a hostile clone silently executed its command. Command-
+  line `-c` is what overrides repo-local config; scrubbing the environment
+  cannot. Re-verified against 18 vectors, including `include.path` chaining;
+  pinned by `TestHostileRepoConfigCannotExecute`.
+- **A byte cap on git output.** `defaultCommitLimit` bounds the commit *count*,
+  but a subject has no length limit: one 200 MB subject reached 906 MB of RSS
+  from a repository whose packed objects were 386 KiB.
+- **A chunked gitignore lookup.** `git check-ignore --stdin` aborts the whole
+  batch on the first path it refuses and prints nothing, so one reference
+  through a symlinked directory disabled every suppression in the report.
+  Failure now splits the batch to isolate the offender, and an incomplete
+  lookup is reported rather than passed off as a clean run.
+- **`cmd.WaitDelay`.** `CommandContext` kills the direct child only; a leaked
+  grandchild holding the stdout pipe beat the 30s cap by 98s.
+
 ## 6. The eval harness
 
 This is the centerpiece. Everything else exists to be measured by it.
@@ -438,10 +545,12 @@ that is measured rather than guessed.
 | **P0** | 1 | Scaffold: repo, JSON Schema contracts + 4-language codegen + CI drift gate, Dockerfiles, compose, provider interface + `FakeProvider`, trace event schema, demo Postgres seeded, BIRD subset downloaded and loaded | CI green on an empty-but-real pipeline |
 | **P1** | 2–3 | **Thin slice.** Question → whole-schema prompt → SQL → guarded execute → result table in the browser, streaming over SSE. Cost ledger wired from day one. **The AST guard's policy (`guard.Validate`) moved here from P3** — P1 executes model-written SQL, so it cannot ship behind a placeholder check. No retrieval, no routing, no repair. | You can ask a question in a browser and get a correct table back, and see what it cost |
 | **P2** | 3–4 | **Eval v0.** 50 BIRD questions, execution accuracy, record/replay fixtures, CI gate with a floor. | A baseline number exists and CI fails if it drops |
+| **P2.5** | 4 | **Plumb, deterministic half.** `internal/index` + `cmd/plumb`: repo → SQLite, five fact-versus-fact checks, `make plumb`. No model, no network. | 0 findings on `ishtirak`; `loom`'s missing `loom/eval/run.py` and `pokemonScraper`'s phase contradictions both caught |
 | **P3** | 4–6 | SQL guard hardened: **dialect adapters (SQLite + Postgres)**, executor limits, the error taxonomy (`Classify`), the full adversarial fixture set as executable fixtures, and revisiting the sidecar hop against a pure-Go parser | Every adversarial fixture is rejected, as a test |
 | **P4** | 6–8 | Repair loop + full agent trace + SSE trace timeline UI | Repair-loop lift is a measured number |
 | **P5** | 8–10 | Schema retriever: table docs, embeddings, FK expansion, rerank. Eval scaled to full BIRD dev. | Schema recall@k reported separately from EX |
 | **P6** | 10–12 | Uncertainty router: k-sample self-consistency on result sets, escalation, abstention | Coverage/accuracy curve published; the "does routing pay" question answered either way |
+| **P6.5** | 12 | **Plumb, LLM half.** `internal/claims` + `internal/verdict` on the P6 router. Scored against DocPrism and CASCADE in the same harness. **Blocked on P1**: reuses `guard.Validate`, which is an open `TODO(you)`. | Precision/recall/abstention published; `claude-machinery-map` returns CONTRADICTED on four lines |
 | **P7** | 12–13 | Semantic cache + cost dashboard + $/correct-answer | Hit rate, dollars saved, and false-hit rate all measured |
 | **P8** | 13–15 | Charts in the UI, deploy (Fly.io or Render + Vercel), README with the benchmark table and error analysis | Public URL, linked from samibk.com |
 | **P9** | 15–16 | Buffer, write-up, portfolio integration | — |

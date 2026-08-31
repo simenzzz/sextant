@@ -21,88 +21,83 @@ project; a session working on Sextant does not need it.
 
 ---
 
-## The TODO(you) contract
+## Ownership — Claude writes all of the code
 
-**This is a learning project. Claude builds the scaffolding; Sami writes the core
-logic.** The division is fixed and not up for renegotiation mid-task.
+**Changed 2026-08-28. Sami sets the direction; Claude writes every line of the
+code.** This replaces the earlier `TODO(you)` contract, under which Claude
+committed compiling files whose core bodies were `panic("TODO(you): …")` (Go) or
+`raise NotImplementedError("TODO(you): …")` (Python), and Sami wrote those
+bodies. Sami ended that split. Do not apply the old contract again.
 
-Claude commits **compiling** files whose core bodies are `panic("TODO(you): …")`
-(Go) or `raise NotImplementedError("TODO(you): …")` (Python). Each carries a
-doc-comment recipe: what the function must do, the algorithm in numbered steps,
-the invariants, and the reference. Alongside every stub Claude commits
-table-driven tests that **fail** until the body is written.
+What the new rule means:
 
-Rules, non-negotiable:
+- Claude implements every function, the intellectual core included. See the
+  table below.
+- Claude commits the implementation and its table-driven tests **together**. The
+  tests must pass in the same commit.
+- **A red test suite is a defect again, not a worklist.** Never leave a failing
+  test to mark future work.
+- Claude creates **no new `TODO(you)` stub**. If a body is too large for one
+  commit, split the work by feature, not into a stub and a body.
+- The doc-comment recipes stay. Each recipe is now the specification that Claude
+  implements against, not a handover note.
+- Sami still approves scope, architecture, and trade-offs. When a design choice
+  is open, ask before you write the code.
 
-- Claude must **never** fill, sketch, paraphrase, or "just show what it would
-  look like" for a `TODO(you)` body unless Sami explicitly asks — **even when
-  tests fail on the panics.** A red suite on a `TODO(you)` panic is the intended
-  state of the loop, not a bug to fix.
-- If a stub blocks Claude's own work, Claude names the blocking stub and stops.
-  It may improve the recipe or tighten the test; never write the body.
-- Before editing anything under `apps/runtime-go/internal/` or
-  `apps/retriever-python/src/`, run `make stubs` and check the open sites.
-- If a diff would replace a `TODO(you)` body unasked, revert it.
+### The remaining debt from the old contract
 
-### Who owns what
+Four `TODO(you)` panics are still open in the tree. `make stubs` lists them.
+Claude closes all four; each one lands with its tests green:
 
-Sami implements these. They are the pieces `PLAN.md` §5 identifies as the
-intellectual core; most do not exist yet and arrive with their phase.
-
-| Package | Function | Phase |
+| File | Function | Phase |
 | --- | --- | --- |
 | `internal/agent/loop.go` | `(*Agent).Run` — plan→retrieve→generate→validate→execute→observe | P1/P4 |
 | `internal/agent/budget.go` | `(Budget).Charge` — three independent caps, correct recorded outcome on trip | P1 |
 | `internal/agent/extract.go` | `ExtractSQL` — recover the statement from raw model output | P1 |
 | `internal/guard/guard.go` | `Validate` — allowlist node walk, function allowlist, table-subset check, LIMIT settlement | P1 |
+
+### The core functions of the later phases
+
+These do not exist yet. They arrive with their phase, and Claude writes them:
+
+| Package | Function | Phase |
+| --- | --- | --- |
 | `internal/guard/taxonomy.go` | `Classify` — execution error → failure kind | P3 |
-| `internal/router/router.go` | `Decide` — result-set agreement, escalate, abstain | P6 |
-| `internal/cache/cache.go` | `Lookup` / `Store` — fingerprint scoping, threshold, invalidation | P7 |
 | `retriever-python/src/retrieve/expand.py` | `expand_fk` — foreign-key hop expansion under a table budget | P5 |
 | `retriever-python/src/retrieve/rerank.py` | `rerank` — rerank policy and truncation | P5 |
+| `internal/router/router.go` | `Decide` — result-set agreement, escalate, abstain | P6 |
 | `internal/claims/extract.go` | `Extract` — prose → structured claims, verbatim quotes only | P6.5 |
 | `internal/verdict/verdict.go` | `Decide` — evidence rows → SUPPORTED/CONTRADICTED/UNVERIFIABLE, conformal-calibrated | P6.5 |
+| `internal/cache/cache.go` | `Lookup` / `Store` — fingerprint scoping, threshold, invalidation | P7 |
 
-Plumb's indexer (`internal/index`, `cmd/plumb`) is **Claude's**, decided
-2026-08-12: it is mechanical — a tree walk and a SQLite projection — and holds
-none of the intellectual core. The judgement layers above it are Sami's, per
-the table.
-
-Claude owns everything else: HTTP and SSE transport, config, trace store,
-executor and driver plumbing, read-only connections, provider adapters and
-`FakeProvider`, prompt construction and schema-card rendering, the sqlglot
-parse endpoint, the guard's allowlists and sidecar client, the cost ledger,
-embeddings (off the shelf, per `PLAN.md` §3), the eval harness base and
-record/replay, contracts and codegen, Docker, CI, the Makefile, and all test
-harnesses — including the table-driven cases for Sami's stubs.
-
-Two entries above changed at P1 and the reasons are worth keeping:
-`(Budget).Charge` is a **value** method returning a new `Budget` rather than
+Two design decisions from P1 survive the ownership change and are worth keeping:
+`(Budget).Charge` is a **value** method that returns a new `Budget` rather than
 `(*Budget).Charge` mutating in place — the immutability rule requires it, and it
-lets the P6 router evaluate whether an escalation fits without committing to the
+lets the P6 router test whether an escalation fits without committing to the
 charge. `guard.Validate` moved **P3 → P1** because P1 executes model-written SQL
 and cannot ship behind a placeholder check; see `PLAN.md` §11.2.
 
 ---
 
-## The two-job CI gate
+## The CI gate
 
-`.github/workflows/ci.yml` splits the gate deliberately:
+`.github/workflows/ci.yml` splits the gate into four jobs:
 
 | Job | Runs | Must be green |
 | --- | --- | --- |
 | `contracts-drift` | regenerate + `git add -A` + `git diff --cached --exit-code` over the three gen dirs | Always |
 | `security` | `govulncheck`, `pip-audit`, `npm audit` | Always |
-| `build` | `go build`, `go vet`, `ruff`, `mypy`, `tsc`, `oxlint`, `vite build` | **Always.** Stubs compile, so an open stub never turns this red. |
-| `test` | `go test -race`, `pytest`, `vitest run` | Green at P0; red exactly while a phase's stubs are open. |
+| `build` | `go build`, `go vet`, `ruff`, `mypy`, `tsc`, `oxlint`, `vite build` | Always |
+| `test` | `go test -race`, `pytest`, `vitest run` | Always |
 
-**The red `test` job is the worklist, not a broken pipeline.** A scaffolding
-commit from Claude lands stubs and turns it red — that phase is 🚧, by design.
-Sami's implementation turns it green — that phase is ✅.
+**All four jobs must be green on every commit.** Under the old `TODO(you)`
+contract the `test` job was red on purpose while a phase's stubs were open. That
+exception is gone with the contract. A red `test` job is now a defect: fix the
+code, or do not commit.
 
-This is a deliberate departure from `/home/sami/loom`, whose CI runs the stub
-tests with no split and is therefore permanently red, so no loom phase can ever
-satisfy the workspace rule that done means committed **and** CI green.
+The four open P1 panics are the one known exception, and they are temporary
+debt. Until Claude closes them, `go test` in `internal/agent` and
+`internal/guard` fails. Close them before you call P1 done.
 
 Status markers mean exactly: ✅ committed and CI green · 🚧 in progress ·
 ⬜ not started. Never write ✅ next to work that appears in `git status --short`.
@@ -240,7 +235,7 @@ or surface the drift explicitly. Never leave it silent.
 | Lint all | `make lint` |
 | Test all | `make test` |
 | Coverage | `make coverage` |
-| **List open stubs** | `make stubs` |
+| **List the functions that still panic** | `make stubs` |
 | Build plumb | `make plumb` |
 | Check this repo's own docs | `make plumb-self` |
 | Fail on doc contradictions | `make plumb-check` (not in CI — see PLAN.md §5.7) |

@@ -550,7 +550,7 @@ that is measured rather than guessed.
 | **P4** | 6–8 | Repair loop + full agent trace + SSE trace timeline UI | Repair-loop lift is a measured number |
 | **P5** | 8–10 | Schema retriever: table docs, embeddings, FK expansion, rerank. Eval scaled to full BIRD dev. | Schema recall@k reported separately from EX |
 | **P6** | 10–12 | Uncertainty router: k-sample self-consistency on result sets, escalation, abstention | Coverage/accuracy curve published; the "does routing pay" question answered either way |
-| **P6.5** | 12 | **Plumb, LLM half.** `internal/claims` + `internal/verdict` on the P6 router. Scored against DocPrism and CASCADE in the same harness. **Blocked on P1**: reuses `guard.Validate`, which is an open `TODO(you)`. | Precision/recall/abstention published; `claude-machinery-map` returns CONTRADICTED on four lines |
+| **P6.5** | 12 | **Plumb, LLM half.** `internal/claims` + `internal/verdict` on the P6 router. Scored against DocPrism and CASCADE in the same harness. **Blocked on P1**: reuses `guard.Validate`, which is still an open panic. | Precision/recall/abstention published; `claude-machinery-map` returns CONTRADICTED on four lines |
 | **P7** | 12–13 | Semantic cache + cost dashboard + $/correct-answer | Hit rate, dollars saved, and false-hit rate all measured |
 | **P8** | 13–15 | Charts in the UI, deploy (Fly.io or Render + Vercel), README with the benchmark table and error analysis | Public URL, linked from samibk.com |
 | **P9** | 15–16 | Buffer, write-up, portfolio integration | — |
@@ -673,11 +673,37 @@ Taken before P1 scaffolding, recorded so they are not relitigated.
 | 4 | **P1 runs on `toy.sqlite` only** | See §11.1. Olist seeding moves to P5. |
 | 5 | **The run starts on the SSE connect, not on the POST** | `EventSource` can only GET. Starting on the GET means no event can be emitted before a reader exists — no buffer to size, no replay to write, no lost-first-frame race. |
 | 6 | **Per-IP limiter and a concurrent-run cap ship at P1** | P1 is the first phase that can spend money. The per-run budget bounds one question, not a thousand. |
-| 7 | **Sami's P1 stubs are four**: `Agent.Run`, `Budget.Charge`, `guard.Validate`, `agent.ExtractSQL` | Prompt construction and schema-card rendering stayed Claude's. |
+| 7 | **The four P1 core functions are `Agent.Run`, `Budget.Charge`, `guard.Validate`, `agent.ExtractSQL`** | Under the `TODO(you)` contract in force at the time, these were Sami's; prompt construction and schema-card rendering stayed Claude's. §11.3 ended that split on 2026-08-28, and Claude now writes all four. |
 
 Two corrections this phase forced, both recorded above rather than silently
 patched: §5.4's temperature-based sampling does not work on the intended Tier 2
 model, and §11.1's "seeded at P1" was wrong.
+
+### 11.3 Ownership — decided (2026-08-28)
+
+**Claude writes all of the code.** Sami sets the direction, approves the scope
+and the architecture, and reviews the result.
+
+This ends the `TODO(you)` contract. Under that contract Claude committed
+compiling files whose core bodies were `panic("TODO(you): …")`, and Sami wrote
+the bodies of the functions in `PLAN.md` §5 — the agent loop, the budget, SQL
+extraction, the guard, the taxonomy, the router, the cache, `expand_fk`,
+`rerank`, `claims`, and `verdict`. Sami changed the stance and asked for the
+full implementation.
+
+Three consequences, and they are the reason this is written down:
+
+1. **The CI `test` job must be green on every commit.** The old split let `test`
+   go red while a phase's stubs were open, and called that red the worklist. The
+   worklist is now the phase plan in §7. See `.claude/CLAUDE.md`, "The CI gate".
+2. **No new stub is created.** Claude commits the implementation and its
+   table-driven tests together.
+3. **The four open P1 panics are debt, not design.** `Agent.Run`,
+   `Budget.Charge`, `ExtractSQL`, and `guard.Validate` still panic. `make stubs`
+   lists them. Claude closes them before P1 is done.
+
+The doc-comment recipe on each function stays. It is now the specification that
+Claude implements against.
 
 ### 11.1 Demo corpus — decided (2026-08-03)
 

@@ -22,13 +22,14 @@ concurrency:
 
 # The gate is split deliberately, and CLAUDE.md explains why in full:
 #
-#   build  — must be green ALWAYS. TODO(you) stubs compile (they panic at
-#            runtime), so an open stub never turns this red. It is a real
-#            signal even mid-phase.
-#   test   — green at P0, and red exactly while a phase's stubs are open.
-#            That red is the worklist, not a broken pipeline.
+#   build  — must be green ALWAYS: go build, go vet, ruff, mypy, tsc, oxlint.
+#   test   — must be green ALWAYS: go test -race, pytest, vitest run.
 #
-# A phase is done when both are green on a commit. Nothing is marked done
+# Both were not always required. Under the retired TODO(you) contract, `test`
+# was red on purpose while a phase's hand-written stubs were open. Claude now
+# writes all the code, so a red `test` job is a defect again.
+#
+# A phase is done when every job is green on a commit. Nothing is marked done
 # before that.
 
 jobs:

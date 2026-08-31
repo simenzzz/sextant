@@ -8,7 +8,7 @@ and millisecond accounted for.
 
 > **Status: P1 in progress.** The thin slice — question → SQL → guarded execute
 > → result table, streaming over SSE, with the cost ledger wired from day one —
-> is scaffolded and its four core functions are open stubs. Nothing below is
+> is scaffolded, and four core functions still panic. Nothing below is
 > measured yet: the table is reserved so the numbers land in the place they will
 > be read, and every claim in this README stays in the future tense until an
 > eval run fills it in. See [PLAN.md](./PLAN.md) for the full build plan.
@@ -66,12 +66,12 @@ make help              # every target, with descriptions
 make generate-schemas  # regenerate contract types for Go, Python, TypeScript
 make build             # compile and lint all three services
 make test              # run all three test suites
-make stubs             # list open TODO(you) sites
+make stubs             # list the functions that still panic
 make up                # demo Postgres + both services
 ```
 
-Working in this repo? Read [CLAUDE.md](./.claude/CLAUDE.md) first — it defines who
-implements what, and why the test suite is sometimes red on purpose.
+Working in this repo? Read [CLAUDE.md](./.claude/CLAUDE.md) first — it defines
+the invariants, the CI gate, and the code rules.
 
 ## License
 

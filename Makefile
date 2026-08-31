@@ -61,9 +61,10 @@ check-schemas: generate-schemas ## Fail if generated contract code drifted from 
 	git diff --exit-code -- $(GEN_DIRS)
 
 # ---------------------------------------------------------------- build ----
-# `build` must stay green even while TODO(you) stubs are open: stubs compile,
-# they just panic. That is what makes it a meaningful gate during a phase whose
-# tests are red on purpose. See CLAUDE.md, "The two-job CI gate".
+# `build` and `test` must both stay green on every commit. See CLAUDE.md,
+# "The CI gate". Four P1 functions still panic and their tests still fail; that
+# is debt from the retired TODO(you) contract, not a design. `make stubs` lists
+# them.
 
 .PHONY: build
 build: build-go build-python build-web ## Compile and type-check everything
@@ -110,11 +111,11 @@ coverage: ## Report coverage for every service
 	npm --prefix $(WEB_DIR) run coverage
 
 .PHONY: stubs
-stubs: ## List open TODO(you) sites — the work that is Sami's, not Claude's
+stubs: ## List the functions that still panic — leftover TODO(you) debt
 	@# The second filter requires the marker to BE the statement, not merely
 	@# appear on the line. internal/index documents the contract in its comments
 	@# and exercises it in test fixtures; a bare text search reported 12 sites
-	@# when 4 were open, which makes the worklist useless.
+	@# when 4 were open, which makes the list useless.
 	@grep -rn "TODO(you)" apps eval \
 		--include=*.go --include=*.py --include=*.ts --include=*.tsx \
 		2>/dev/null \

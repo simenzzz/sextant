@@ -92,7 +92,14 @@ class TestTables:
         ("sql", "want"),
         [
             ("SELECT * FROM orders", ["orders"]),
-            ("SELECT * FROM main.orders", ["orders"]),
+            # CHANGED at P1 by security review: this asserted ["orders"], which
+            # was the bug. The rendered statement keeps the qualifier, so a
+            # guard comparing the bare name against its allowed set would
+            # approve a read of a table generation was never shown —
+            # `other.users` passing as `users`. The qualifier is now part of
+            # the reported name so that comparison fails closed.
+            ("SELECT * FROM main.orders", ["main.orders"]),
+            ("SELECT * FROM other.users", ["other.users"]),
             ("SELECT * FROM Orders", ["orders"]),
             (
                 "SELECT c.name FROM customers c JOIN orders o ON o.customer_id = c.id",

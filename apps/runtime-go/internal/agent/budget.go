@@ -130,7 +130,36 @@ func NewBudget(caps Caps, now time.Time) Budget {
 // PLAN.md section 5.3 for the three axes; budget_test.go for the boundary
 // cases, which are where the at/above asymmetry above is pinned down.
 func (b Budget) Charge(step Step, now time.Time) (Budget, Outcome) {
-	panic("TODO(you): implement the three independent caps and the recorded outcome — see the recipe above and budget_test.go")
+	// The new budget. The receiver is untouched on every path below: Budget
+	// holds only value types, so this copy is a complete one.
+	next := b
+	next.SpentUSD += step.USD
+	if step.EntersRepair {
+		next.RepairDepth++
+	}
+
+	// The three caps are independent, and the recorded outcome names the one
+	// that actually tripped. The eval reports their rates separately, so a run
+	// that ran out of time recorded as having run out of money corrupts both
+	// numbers.
+	//
+	// The at/above asymmetry between the dollar cap and the depth cap is
+	// deliberate. MaxUSD is an amount that must not be reached; MaxRepairDepth
+	// counts iterations that are ALLOWED, so depth 3 under a cap of 3 is the
+	// third permitted repair and must run.
+	switch {
+	case !now.Before(b.StartedAt.Add(b.Caps.WallClock)):
+		return next, OutcomeDeadlineExceeded
+	case next.SpentUSD >= b.Caps.MaxUSD:
+		return next, OutcomeBudgetExhausted
+	case next.RepairDepth > b.Caps.MaxRepairDepth:
+		return next, OutcomeDepthExhausted
+	default:
+		// The updated budget goes back even when a cap tripped: the spend
+		// happened, and a ledger that dropped the charge which ended the run
+		// would understate exactly the run that cost the most.
+		return next, OutcomeNone
+	}
 }
 
 // Remaining reports what is left, for diagnostics and for the P6 router.

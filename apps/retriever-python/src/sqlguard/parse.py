@@ -163,6 +163,25 @@ def _node_kinds(statement: exp.Expr) -> set[str]:
     return {type(node).__name__ for node in statement.walk()}
 
 
+def _qualified_name(table: exp.Table) -> str:
+    """The table's name, keeping any schema or catalog qualifier.
+
+    The qualifier has to survive. ``table.name`` alone reports ``users`` for
+    ``other.users``, while the rendered statement still reads ``other.users`` —
+    so a guard comparing the bare name against its allowed set would approve a
+    read of a table it never saw. On a schema-per-tenant Postgres database that
+    is a cross-tenant read behind one qualifier, and it reaches
+    ``pg_catalog.<name>`` and ``information_schema.<name>`` the same way.
+
+    Reporting the qualified name makes the guard's exact-match subset check
+    refuse it, which is the fail-closed answer: the schema card names tables
+    without qualifiers, so a qualified reference is not something generation
+    was shown.
+    """
+    parts = [part for part in (table.text("catalog"), table.text("db"), table.name) if part]
+    return ".".join(parts).lower()
+
+
 def _tables(statement: exp.Expr) -> set[str]:
     """Real tables referenced, with CTE aliases removed.
 
@@ -172,7 +191,7 @@ def _tables(statement: exp.Expr) -> set[str]:
     touching a table that is not in the schema.
     """
     cte_aliases = {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE)}
-    named = {table.name.lower() for table in statement.find_all(exp.Table) if table.name}
+    named = {_qualified_name(table) for table in statement.find_all(exp.Table) if table.name}
     return named - cte_aliases
 
 
@@ -222,13 +241,31 @@ def _limits(statement: exp.Expr, req: ParseRequest) -> dict[str, Any]:
         rendered = statement
         out |= {"limit_injected": False, "limit_clamped": False}
 
-    normalized = rendered.sql(dialect=req.dialect)
+    normalized = _strip_comments(rendered).sql(dialect=req.dialect)
     # An empty or over-long rendering cannot be carried by the contract, and
     # handing back a truncated statement would be handing back a different one.
     if not normalized or len(normalized) > MAX_SQL_CHARS:
         return out
     out["normalized_sql"] = normalized
     return out
+
+
+def _strip_comments(statement: exp.Expr) -> exp.Expr:
+    """Remove every comment from the statement before it is rendered.
+
+    Comment text is model-controlled and it survives into the rendered output,
+    where nothing in the node-kind or function allowlist inspects it. Today a
+    breakout is blocked only by sqlglot's own ``sanitize_comment``, which
+    rewrites ``*/`` and ``/*`` inside a comment body — so the guard's stacked-
+    query defence rests on a helper in another project rather than on anything
+    this service does. Nothing downstream reads the comments, so removing them
+    costs nothing and removes the dependency.
+    """
+    stripped = statement.copy()
+    for node in stripped.walk():
+        if node.comments:
+            node.comments = []
+    return stripped
 
 
 def _limit_value(statement: exp.Expr) -> int | None:

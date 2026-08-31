@@ -21,6 +21,16 @@ services:
       # the trace store there would hide exactly the ownership bug this
       # smoke test exists to catch.
       SEXTANT_TRACE_PATH: /data/trace.sqlite
+      # Without this the runtime falls back to the development default, which
+      # is a path relative to the repository root — and the image's working
+      # directory is /data, so it opens nothing and exits before serving. The
+      # main compose file has always set this; the test file did not, so the
+      # smoke test could never reach a runtime that opens a database.
+      SEXTANT_DATABASES: toy=sqlite:/data/fixtures/toy.sqlite
+    volumes:
+      # Read-only at the mount as well as in the DSN. The AST guard is not the
+      # only thing between a bad generation and the data.
+      - ./fixtures:/data/fixtures:ro
     depends_on:
       - retriever
 

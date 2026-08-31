@@ -1,6 +1,11 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"github.com/simenzzz/sextant/apps/runtime-go/internal/contracts/gen"
+)
 
 // Run answers one question.
 //
@@ -115,5 +120,101 @@ import "context"
 // cases, which drive a FakeProvider and a fake parser and assert on the trace
 // the run produced.
 func (a *Agent) Run(ctx context.Context, in RunInput, emit Emit) (Result, error) {
-	panic("TODO(you): implement the plan→generate→validate→execute→observe loop — see the recipe above and loop_test.go")
+	r := newRunState(a.deps, in, emit)
+
+	// 1. Start.
+	r.emit(event(gen.TraceEventV1TypeRunStarted))
+
+	// 2. Retrieve.
+	r.retrieve()
+	if done := r.stopped(ctx); done != nil {
+		return *done, nil
+	}
+
+	// 3-4. Generate, and charge what it cost.
+	raw, done := r.generate(ctx)
+	if done != nil {
+		return *done, nil
+	}
+
+	// 5-6. Recover the statement, then prove it may run.
+	sql, done := r.extract(raw)
+	if done != nil {
+		return *done, nil
+	}
+	plan, done := r.validate(ctx, sql)
+	if done != nil {
+		return *done, nil
+	}
+
+	// 7-8. Execute and finish.
+	return r.execute(ctx, plan)
+}
+
+// runState carries what one run needs across its phases.
+//
+// A struct rather than a long parameter list, because the phases share the
+// ledger and the budget — and because P4's repair loop runs generate →
+// validate → execute more than once against the same state.
+type runState struct {
+	deps   Deps
+	in     RunInput
+	emit   Emit
+	ledger *Ledger
+	budget Budget
+
+	// model is the tier every P1 run uses. The strong tier arrives with the
+	// router at P6.
+	model string
+	// generation is the ledger entry for the run's provider call, so the
+	// events that follow it can report what it cost.
+	generation gen.Entry
+}
+
+func newRunState(deps Deps, in RunInput, emit Emit) *runState {
+	return &runState{
+		deps:   deps,
+		in:     in,
+		emit:   emit,
+		ledger: NewLedger(in.RunID),
+		budget: NewBudget(in.Caps, deps.Clock.Now()),
+		model:  deps.CheapModel,
+	}
+}
+
+// finish closes the run with a complete ledger.
+//
+// One place, so "every exit path returns accounting" is a single statement
+// rather than a convention repeated at each return.
+func (r *runState) finish(outcome Outcome, plan *gen.SqlPlanV1, rows *gen.ResultSetV1) *Result {
+	return &Result{Outcome: outcome, Plan: plan, Rows: rows, Ledger: r.ledger.Document()}
+}
+
+// fail ends the run with a classified error.
+func (r *runState) fail(kind gen.TraceEventV1FailureKind, message string) *Result {
+	r.emit(failureEvent(gen.TraceEventV1TypeError, kind, message))
+	return r.finish(OutcomeError, nil, nil)
+}
+
+// stopped reports how the run ended when its context ended it, or nil when the
+// context is still live.
+//
+// A deadline and a cancellation are different events and must not share a
+// branch. The API layer bounds every run with context.WithTimeout(WallClock),
+// and Budget.StartedAt is taken a moment later on a spawned goroutine — so in
+// production the CONTEXT deadline always fires before Budget.Charge's own
+// wall-clock check can. Reporting both as internal_error would therefore make
+// deadline_exceeded a value the eval almost never records, inflate the error
+// rate by exactly the timeouts, and paint an ordinary timeout in the UI as a
+// failure. A run that ends at a cap is a recorded outcome.
+func (r *runState) stopped(ctx context.Context) *Result {
+	switch err := ctx.Err(); {
+	case errors.Is(err, context.DeadlineExceeded):
+		r.emit(event(gen.TraceEventV1TypeDeadlineExceeded))
+		return r.finish(OutcomeDeadlineExceeded, nil, nil)
+	case err != nil:
+		return r.fail(gen.TraceEventV1FailureKindInternalError, "the run was stopped")
+	default:
+		return nil
+	}
 }

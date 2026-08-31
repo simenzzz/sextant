@@ -6,9 +6,9 @@ execute it read-only, repair on failure, escalate to a stronger model when
 uncertain, and abstain rather than answer wrongly — with every token, dollar,
 and millisecond accounted for.
 
-> **Status: P1 in progress.** The thin slice — question → SQL → guarded execute
+> **Status: P1 complete.** The thin slice — question → SQL → guarded execute
 > → result table, streaming over SSE, with the cost ledger wired from day one —
-> is scaffolded, and four core functions still panic. Nothing below is
+> is built and its whole test suite is green. Nothing below is
 > measured yet: the table is reserved so the numbers land in the place they will
 > be read, and every claim in this README stays in the future tense until an
 > eval run fills it in. See [PLAN.md](./PLAN.md) for the full build plan.
@@ -66,7 +66,7 @@ make help              # every target, with descriptions
 make generate-schemas  # regenerate contract types for Go, Python, TypeScript
 make build             # compile and lint all three services
 make test              # run all three test suites
-make stubs             # list the functions that still panic
+make stubs             # check that no function still panics
 make up                # demo Postgres + both services
 ```
 

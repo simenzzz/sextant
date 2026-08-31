@@ -121,7 +121,14 @@ func (s *Server) streamRun(
 		ev.ElapsedMs = clock.ElapsedMS(s.deps.Clock, started)
 		step++
 
-		s.persistEvent(persistCtx, run.ID, ev)
+		// A token fragment is streamed but not stored. It is a progress
+		// indicator whose content is already recorded in full by the
+		// `generated` event, and a long generation would otherwise write one
+		// row per token — thousands of rows per run, for a trace nobody reads
+		// fragment by fragment.
+		if !isDeltaOnly(ev) {
+			s.persistEvent(persistCtx, run.ID, ev)
+		}
 
 		if err := s.send(ctx, stream, eventTrace, ev, contracts.TraceEventV1); err != nil {
 			// The client went away or a frame hit its write deadline. Cancel
@@ -228,4 +235,13 @@ func (s *Server) persistLedger(ctx context.Context, runID string, result agent.R
 			s.deps.Logger.Error("persisting cost entry", "run_id", runID, "step", e.Step, "error", err)
 		}
 	}
+}
+
+// isDeltaOnly reports whether an event carries nothing but a token fragment.
+//
+// Narrow on purpose: only a `generating` event whose sole payload is `delta`
+// is skipped by the trace store. The `generating` event that opens the phase
+// carries the model and no delta, so it is stored.
+func isDeltaOnly(ev gen.TraceEventV1) bool {
+	return ev.Type == gen.TraceEventV1TypeGenerating && ev.Delta != nil
 }

@@ -44,18 +44,6 @@ What the new rule means:
 - Sami still approves scope, architecture, and trade-offs. When a design choice
   is open, ask before you write the code.
 
-### The remaining debt from the old contract
-
-Four `TODO(you)` panics are still open in the tree. `make stubs` lists them.
-Claude closes all four; each one lands with its tests green:
-
-| File | Function | Phase |
-| --- | --- | --- |
-| `internal/agent/loop.go` | `(*Agent).Run` — plan→retrieve→generate→validate→execute→observe | P1/P4 |
-| `internal/agent/budget.go` | `(Budget).Charge` — three independent caps, correct recorded outcome on trip | P1 |
-| `internal/agent/extract.go` | `ExtractSQL` — recover the statement from raw model output | P1 |
-| `internal/guard/guard.go` | `Validate` — allowlist node walk, function allowlist, table-subset check, LIMIT settlement | P1 |
-
 ### The core functions of the later phases
 
 These do not exist yet. They arrive with their phase, and Claude writes them:
@@ -69,6 +57,9 @@ These do not exist yet. They arrive with their phase, and Claude writes them:
 | `internal/claims/extract.go` | `Extract` — prose → structured claims, verbatim quotes only | P6.5 |
 | `internal/verdict/verdict.go` | `Decide` — evidence rows → SUPPORTED/CONTRADICTED/UNVERIFIABLE, conformal-calibrated | P6.5 |
 | `internal/cache/cache.go` | `Lookup` / `Store` — fingerprint scoping, threshold, invalidation | P7 |
+
+P1 closed the last four panics on 2026-09-01. `make stubs` reports none open,
+and every job in the CI gate is green.
 
 Two design decisions from P1 survive the ownership change and are worth keeping:
 `(Budget).Charge` is a **value** method that returns a new `Budget` rather than
@@ -94,10 +85,6 @@ and cannot ship behind a placeholder check; see `PLAN.md` §11.2.
 contract the `test` job was red on purpose while a phase's stubs were open. That
 exception is gone with the contract. A red `test` job is now a defect: fix the
 code, or do not commit.
-
-The four open P1 panics are the one known exception, and they are temporary
-debt. Until Claude closes them, `go test` in `internal/agent` and
-`internal/guard` fails. Close them before you call P1 done.
 
 Status markers mean exactly: ✅ committed and CI green · 🚧 in progress ·
 ⬜ not started. Never write ✅ next to work that appears in `git status --short`.
@@ -235,7 +222,7 @@ or surface the drift explicitly. Never leave it silent.
 | Lint all | `make lint` |
 | Test all | `make test` |
 | Coverage | `make coverage` |
-| **List the functions that still panic** | `make stubs` |
+| **Check that no function still panics** | `make stubs` |
 | Build plumb | `make plumb` |
 | Check this repo's own docs | `make plumb-self` |
 | Fail on doc contradictions | `make plumb-check` (not in CI — see PLAN.md §5.7) |

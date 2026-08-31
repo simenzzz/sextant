@@ -62,9 +62,8 @@ check-schemas: generate-schemas ## Fail if generated contract code drifted from 
 
 # ---------------------------------------------------------------- build ----
 # `build` and `test` must both stay green on every commit. See CLAUDE.md,
-# "The CI gate". Four P1 functions still panic and their tests still fail; that
-# is debt from the retired TODO(you) contract, not a design. `make stubs` lists
-# them.
+# "The CI gate". No function panics any more: the last four closed at P1.
+# `make stubs` is the check that it stays that way.
 
 .PHONY: build
 build: build-go build-python build-web ## Compile and type-check everything
@@ -111,7 +110,7 @@ coverage: ## Report coverage for every service
 	npm --prefix $(WEB_DIR) run coverage
 
 .PHONY: stubs
-stubs: ## List the functions that still panic — leftover TODO(you) debt
+stubs: ## Check that no function still panics — none should, since P1
 	@# The second filter requires the marker to BE the statement, not merely
 	@# appear on the line. internal/index documents the contract in its comments
 	@# and exercises it in test fixtures; a bare text search reported 12 sites

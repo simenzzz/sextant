@@ -550,7 +550,7 @@ that is measured rather than guessed.
 | **P4** | 6–8 | Repair loop + full agent trace + SSE trace timeline UI | Repair-loop lift is a measured number |
 | **P5** | 8–10 | Schema retriever: table docs, embeddings, FK expansion, rerank. Eval scaled to full BIRD dev. | Schema recall@k reported separately from EX |
 | **P6** | 10–12 | Uncertainty router: k-sample self-consistency on result sets, escalation, abstention | Coverage/accuracy curve published; the "does routing pay" question answered either way |
-| **P6.5** | 12 | **Plumb, LLM half.** `internal/claims` + `internal/verdict` on the P6 router. Scored against DocPrism and CASCADE in the same harness. **Blocked on P1**: reuses `guard.Validate`, which is still an open panic. | Precision/recall/abstention published; `claude-machinery-map` returns CONTRADICTED on four lines |
+| **P6.5** | 12 | **Plumb, LLM half.** `internal/claims` + `internal/verdict` on the P6 router. Scored against DocPrism and CASCADE in the same harness. Unblocked: `guard.Validate` landed at P1. | Precision/recall/abstention published; `claude-machinery-map` returns CONTRADICTED on four lines |
 | **P7** | 12–13 | Semantic cache + cost dashboard + $/correct-answer | Hit rate, dollars saved, and false-hit rate all measured |
 | **P8** | 13–15 | Charts in the UI, deploy (Fly.io or Render + Vercel), README with the benchmark table and error analysis | Public URL, linked from samibk.com |
 | **P9** | 15–16 | Buffer, write-up, portfolio integration | — |
@@ -698,12 +698,52 @@ Three consequences, and they are the reason this is written down:
    worklist is now the phase plan in §7. See `.claude/CLAUDE.md`, "The CI gate".
 2. **No new stub is created.** Claude commits the implementation and its
    table-driven tests together.
-3. **The four open P1 panics are debt, not design.** `Agent.Run`,
-   `Budget.Charge`, `ExtractSQL`, and `guard.Validate` still panic. `make stubs`
-   lists them. Claude closes them before P1 is done.
+3. **The four open P1 panics were debt, not design.** `Agent.Run`,
+   `Budget.Charge`, `ExtractSQL`, and `guard.Validate` all landed on
+   2026-09-01. `make stubs` reports none open.
 
 The doc-comment recipe on each function stays. It is now the specification that
 Claude implements against.
+
+### 11.4 P1 review findings — the guard's table-subset proof (2026-09-01)
+
+Security review of P1 found two ways a generation could read a table the guard
+never approved. Both were in what the sidecar REPORTS, not in the guard's
+policy, and both were verified against sqlglot before being fixed.
+
+**Fixed at P1 — a schema qualifier defeated the subset check.** `_tables`
+reported `table.name`, so `SELECT * FROM other.users` was summarised as
+`users`. The rendered statement kept the qualifier, so a guard whose allowed
+set contained `users` approved a read of `other.users`. On a schema-per-tenant
+Postgres database that is a cross-tenant read behind one qualifier, and it
+reaches `pg_catalog.<name>` and `information_schema.<name>` the same way. The
+summary now reports the qualified name, so the guard's exact-match check
+refuses it. `parse_summary.v1`'s description for `tables` records the rule.
+
+**Fixed at P1 — comment text reached the executed statement.** sqlglot rewrites
+`--` comments as `/* */` on output, so model-controlled text survived into the
+string the driver runs. A stacked-query breakout through it was blocked only by
+sqlglot's own `sanitize_comment`. Nothing downstream reads comments, so the
+sidecar now removes them before rendering, and the defence no longer rests on a
+helper in another project.
+
+**Deferred to P3 — a quoted identifier folds onto an allowed table.** In
+Postgres `"Users"` is a different relation from `users`. The sidecar lowercases
+and the guard compares case-insensitively, so a database holding both would let
+a generation read the second by quoting it. Not exploitable at P1: §11.2
+decision 4 runs P1 on `toy.sqlite` only, and SQLite identifiers are
+case-insensitive. The fix needs a `quoted` flag in `parse_summary.v1` and a
+case-sensitive comparison when it is set, and it is a **precondition for the
+Postgres dialect adapter**, which is P3's work.
+
+**Also fixed at P1, from the same review pass:** a context deadline was reported
+as `internal_error` rather than `deadline_exceeded` (the API layer's
+`context.WithTimeout` always fires before `Budget.Charge`'s own wall-clock
+check, so the cap was recorded essentially never); a guard rejection emitted
+`rejected` but no terminal event, leaving the browser with a run that never
+finished; and an oversized token fragment failed contract validation on the way
+out, which the SSE writer treats as a reader going away and which therefore
+cancelled healthy runs.
 
 ### 11.1 Demo corpus — decided (2026-08-03)
 

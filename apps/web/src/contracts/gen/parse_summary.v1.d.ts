@@ -27,7 +27,7 @@ export interface ParseSummaryV1 {
    */
   node_kinds: string[];
   /**
-   * Every table the statement references, as resolved from the AST, lowercased and with common-table-expression aliases removed — a CTE name is not a table and a guard checking it against the schema would reject a legitimate query. Empty when ok is false.
+   * Every table the statement references, as resolved from the AST, lowercased and with common-table-expression aliases removed — a CTE name is not a table and a guard checking it against the schema would reject a legitimate query. A schema or catalog qualifier is KEPT, so `other.users` is reported as `other.users` rather than as `users`: the rendered statement still carries the qualifier, so reporting the bare name would let a guard approve a read of a table it never saw. Empty when ok is false.
    *
    * @maxItems 64
    */
